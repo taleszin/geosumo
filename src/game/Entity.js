@@ -22,8 +22,8 @@ export const EXPR_CHARGING = 4;   // olhos concentrados, boca cerrada
 /**
  * Cria uma entidade de inimigo com customização aleatória.
  */
-export function makeEnemyEntity(pos, size) {
-    const e = _buildEntity(pos, size, randomCustomization());
+export function makeEnemyEntity(pos, size, custom) {
+    const e = _buildEntity(pos, size, custom || randomCustomization());
     e.isEnemy = true;
     e.isPlayer = false;
     return e;

@@ -5,7 +5,7 @@ import { mat4 } from 'gl-matrix';
 import { mvPush, mvPop, getMV, drawCube, drawFloor, useObjShader } from '../engine/Renderer.js';
 import { GROUND_Y } from './Physics.js';
 
-export const ARENA_RADIUS = 12.0;
+export const ARENA_RADIUS = 12.0 * Math.SQRT2; // doubled area (radius × sqrt(2))
 
 /**
  * Verifica se a entidade está fora da arena.

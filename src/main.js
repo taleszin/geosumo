@@ -57,6 +57,7 @@ let camera  = null;
 
 // Customização do jogador
 let playerCustom = defaultCustomization();
+let enemyCustom  = null; // será definido ao apertar ALEATÓRIO ou gerado automaticamente
 
 // Preview entity
 let previewEntity = null;
@@ -501,10 +502,13 @@ function _initCustomizeUI() {
         e.stopPropagation();
         SFX.playRandomize();
         const rand = randomCustomization();
+        // Aplica ao jogador
         playerCustom.shape = rand.shape;
         playerCustom.color = rand.color;
         playerCustom.eyes  = rand.eyes;
         playerCustom.mouth = rand.mouth;
+        // Também gera e salva a customização do inimigo (resultado do mesmo botão ALEATÓRIO)
+        enemyCustom = randomCustomization();
         _updateCustomizeDisplay();
     });
 
@@ -547,7 +551,9 @@ function startCountdown() {
 
     // Criar entidades
     player = makePlayerEntity([0, 0, -4], 1.2, playerCustom);
-    enemy = makeEnemyEntity([0, 0, 4], 1.2 + round * 0.1);
+    // Se user apertou ALEATÓRIO antes de iniciar, use essa customização para o inimigo;
+    // caso contrário, gere aleatória.
+    enemy = makeEnemyEntity([0, 0, 4], 1.2 + round * 0.1, enemyCustom || randomCustomization());
     enemyAI = new EnemyAI();
 
     // Snap camera
