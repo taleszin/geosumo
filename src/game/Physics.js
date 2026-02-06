@@ -155,6 +155,12 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
     const attackerSpeed = len2D(attacker.vel);
     const massRatio     = attacker.mass / (defender.mass || 1);
 
+    // IGNORA contatos passivos: só considera hit se houver movimento relevante do braço
+    // ou movimento do corpo (soco efetivo). Isso impede knockback apenas por encostar.
+    const MIN_ARM_SPEED = 0.03;
+    const MIN_ATTACKER_SPEED = 0.12;
+    if (armSpeed < MIN_ARM_SPEED && attackerSpeed < MIN_ATTACKER_SPEED) return false;
+
     // Força = base + velocidade corpo + velocidade braço, escalonada por massa
     let impactForce = BASE_ARM_IMPACT
         + attackerSpeed * MOMENTUM_MULT
@@ -296,11 +302,10 @@ export function bodyCollision(a, b) {
     }
 
     // Aplicar impulso normal
-    const pushStrength = 0.8; // era 0.6
-    a.vel[0] -= impulse * b.mass * nx * pushStrength;
-    a.vel[2] -= impulse * b.mass * nz * pushStrength;
-    b.vel[0] += impulse * a.mass * nx * pushStrength;
-    b.vel[2] += impulse * a.mass * nz * pushStrength;
+    // OBS: contato corpo-a-corpo não provoca repulsão nas velocidades. A física de
+    // empurrão agora é controlada apenas por impactos de braço (checkArmHit) e
+    // body-slam quando slamForce > 0. Mantemos pushStrength = 0 para segurança.
+    const pushStrength = 0.0;
 
     // Body slam extra
     if (slamForce > 0) {
@@ -362,10 +367,12 @@ export function bodyCollision(a, b) {
         return slamForce; // retorna para triggerar expressão
     }
 
-    // Leve push even without slam (sumo oshi)
-    const contactForce = impulse * Math.max(a.mass, b.mass) * pushStrength;
+    // Feedback leve (sem alterar velocidades) para contatos que não são slam.
+    // Usamos um pequeno multiplicador para gerar um valor de "contactForce" que
+    // alimenta reações visuais / expressões, mas não aplica impulso físico.
+    const contactForce = impulse * Math.max(a.mass, b.mass) * 0.15;
     if (contactForce > 0.05) {
-        // Ambos tremem um pouco
+        // Ambos tremem um pouco (visual)
         a.rot[2] -= nx * contactForce * 0.05;
         b.rot[2] += nx * contactForce * 0.05;
     }
