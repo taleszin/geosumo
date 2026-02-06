@@ -1,0 +1,372 @@
+/* ═══════════════════════════════════════════════════════════
+   GEO SUMO — Estilos globais + Sistema de Customização
+   ═══════════════════════════════════════════════════════════ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    overflow: hidden;
+    background: #000;
+    font-family: 'Segoe UI', 'Consolas', monospace;
+    color: #0ff;
+    user-select: none;
+}
+
+/* ── Canvas ─────────────────────────────────────────────── */
+#glcanvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    cursor: crosshair;
+}
+
+/* ── HUD overlay ────────────────────────────────────────── */
+#hud {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+
+/* ── Topo: título + round ───────────────────────────────── */
+#panel-top {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+}
+
+#game-title {
+    font-size: 2.0em;
+    font-weight: 900;
+    letter-spacing: 0.3em;
+    color: #0ff;
+    text-shadow: 0 0 14px #0ff, 0 0 40px #08a;
+}
+
+#round-info {
+    font-size: 0.75em;
+    letter-spacing: 0.15em;
+    color: #8ff;
+    margin-top: 2px;
+}
+
+/* ── Barras de HP ───────────────────────────────────────── */
+#hp-bars {
+    position: absolute;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.hp-container {
+    width: 200px;
+    height: 14px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid #0aa;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.hp-label {
+    position: absolute;
+    top: -14px;
+    left: 4px;
+    font-size: 0.6em;
+    letter-spacing: 0.12em;
+    color: #8ff;
+}
+
+.hp-fill {
+    height: 100%;
+    width: 100%;
+    transition: width 0.2s ease;
+}
+
+#hp-player {
+    background: linear-gradient(90deg, #0af, #0ff);
+    box-shadow: inset 0 0 6px #0ff;
+}
+
+#hp-enemy {
+    background: linear-gradient(90deg, #f33, #f80);
+    box-shadow: inset 0 0 6px #f33;
+}
+
+#vs-text {
+    font-weight: bold;
+    font-size: 0.85em;
+    color: #ff0;
+    text-shadow: 0 0 8px #ff0;
+}
+
+/* ── Painéis laterais (controles + debug) ───────────────── */
+#panel-left {
+    position: absolute;
+    bottom: 30px;
+    left: 16px;
+    font-size: 0.65em;
+    line-height: 1.6;
+    opacity: 0.5;
+}
+
+#panel-right {
+    position: absolute;
+    bottom: 30px;
+    right: 16px;
+    font-size: 0.65em;
+    line-height: 1.6;
+    text-align: right;
+    opacity: 0.5;
+}
+
+/* ── Rodapé ─────────────────────────────────────────────── */
+#panel-bottom {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.55em;
+    letter-spacing: 0.15em;
+    opacity: 0.35;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STATE SCREEN (menu / win / lose)
+   ═══════════════════════════════════════════════════════════ */
+#state-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.75);
+    pointer-events: all;
+    cursor: pointer;
+    gap: 14px;
+    z-index: 20;
+}
+
+#state-title {
+    font-size: 4.0em;
+    font-weight: 900;
+    letter-spacing: 0.35em;
+    color: #0ff;
+    text-shadow: 0 0 30px currentColor, 0 0 60px currentColor;
+}
+
+#state-sub {
+    font-size: 1.2em;
+    letter-spacing: 0.15em;
+    color: #aaa;
+}
+
+#state-hint {
+    font-size: 0.9em;
+    letter-spacing: 0.2em;
+    color: #ff0;
+    animation: blink 1.2s steps(2, start) infinite;
+}
+
+@keyframes blink {
+    to { opacity: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CUSTOMIZATION SCREEN
+   ═══════════════════════════════════════════════════════════ */
+#customize-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    padding-bottom: 28px;
+    pointer-events: all;
+    z-index: 25;
+    /* Background semitransparente — canvas 3D renderiza atrás */
+    background: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.1) 0%,
+        rgba(0, 0, 0, 0.15) 40%,
+        rgba(0, 5, 15, 0.85) 65%,
+        rgba(0, 5, 15, 0.95) 100%
+    );
+}
+
+#cust-header {
+    position: absolute;
+    top: 20px;
+    text-align: center;
+}
+
+#cust-title {
+    font-size: 2.2em;
+    font-weight: 900;
+    letter-spacing: 0.3em;
+    color: #0ff;
+    text-shadow: 0 0 20px #0ff, 0 0 50px #08a;
+}
+
+#cust-subtitle {
+    font-size: 0.7em;
+    letter-spacing: 0.2em;
+    color: #88cccc;
+    margin-top: 6px;
+}
+
+/* ── Painel de opções ───────────────────────────────────── */
+#cust-panel {
+    width: 420px;
+    max-width: 92vw;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.cust-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0, 30, 40, 0.7);
+    border: 1px solid rgba(0, 255, 255, 0.15);
+    border-radius: 6px;
+    padding: 8px 14px;
+    transition: border-color 0.2s;
+}
+
+.cust-row:hover {
+    border-color: rgba(0, 255, 255, 0.4);
+}
+
+.cust-label {
+    width: 70px;
+    font-size: 0.7em;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: #6cc;
+    flex-shrink: 0;
+}
+
+.cust-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    justify-content: center;
+}
+
+.cust-value {
+    font-size: 0.95em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: #fff;
+    text-align: center;
+    min-width: 150px;
+    text-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
+}
+
+.cust-arrow {
+    background: rgba(0, 60, 80, 0.6);
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    color: #0ff;
+    font-size: 1.2em;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.cust-arrow:hover {
+    background: rgba(0, 120, 160, 0.8);
+    border-color: #0ff;
+    box-shadow: 0 0 12px rgba(0, 255, 255, 0.5);
+    transform: scale(1.1);
+}
+
+.cust-arrow:active {
+    transform: scale(0.95);
+}
+
+/* ── Descrição ──────────────────────────────────────────── */
+#cust-desc {
+    font-size: 0.7em;
+    color: #889;
+    text-align: center;
+    letter-spacing: 0.06em;
+    min-height: 1.4em;
+    padding: 4px 0;
+}
+
+/* ── Botões de ação ─────────────────────────────────────── */
+#cust-fight-btn {
+    background: linear-gradient(135deg, #00cc88, #00aaff);
+    border: 2px solid #0ff;
+    color: #000;
+    font-size: 1.5em;
+    font-weight: 900;
+    letter-spacing: 0.25em;
+    padding: 14px 50px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-shadow: none;
+    box-shadow: 0 0 20px rgba(0, 255, 200, 0.3), inset 0 0 15px rgba(255, 255, 255, 0.15);
+    margin-bottom: 10px;
+}
+
+#cust-fight-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 40px rgba(0, 255, 200, 0.6), inset 0 0 20px rgba(255, 255, 255, 0.25);
+    background: linear-gradient(135deg, #00ff99, #00ccff);
+}
+
+#cust-fight-btn:active {
+    transform: scale(0.97);
+}
+
+#cust-random-btn {
+    background: rgba(40, 20, 60, 0.7);
+    border: 1px solid rgba(200, 100, 255, 0.3);
+    color: #c8a;
+    font-size: 0.8em;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    padding: 8px 24px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+#cust-random-btn:hover {
+    background: rgba(80, 30, 120, 0.8);
+    border-color: rgba(200, 100, 255, 0.7);
+    box-shadow: 0 0 15px rgba(200, 100, 255, 0.3);
+    color: #f0c;
+}

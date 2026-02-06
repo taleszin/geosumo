@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GEO SUMO — Geometric Brawler</title>
+</head>
+<body>
+    <canvas id="glcanvas"></canvas>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- HUD OVERLAY (durante luta)                             -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="hud">
+        <div id="panel-top">
+            <div id="game-title">GEO SUMO</div>
+            <div id="round-info">ROUND <span id="round-num">1</span> — GEOMETRIC BRAWLER</div>
+        </div>
+
+        <div id="hp-bars">
+            <div id="hp-player-container" class="hp-container">
+                <span class="hp-label">PLAYER</span>
+                <div id="hp-player" class="hp-fill"></div>
+            </div>
+            <span id="vs-text">VS</span>
+            <div id="hp-enemy-container" class="hp-container">
+                <span class="hp-label">ENEMY</span>
+                <div id="hp-enemy" class="hp-fill"></div>
+            </div>
+        </div>
+
+        <div id="panel-left">
+            <div>WASD — MOVER</div>
+            <div>MOUSE — MIRAR BRAÇOS</div>
+            <div>LMB — BRAÇO ESQUERDO</div>
+            <div>RMB — BRAÇO DIREITO</div>
+            <div>SHIFT/ESPAÇO — INVESTIDA</div>
+        </div>
+        <div id="panel-right">
+            <div id="dbg-pos">POS: 0, 0</div>
+            <div id="dbg-vel">VEL: 0</div>
+            <div id="dbg-fps">FPS: 60</div>
+        </div>
+        <div id="panel-bottom">WebGL 1.0 — GLSL — ZERO TEXTURES — PROCEDURAL ONLY</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- TELA DE ESTADO (menu / win / lose)                     -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="state-screen">
+        <div id="state-title">GEO SUMO</div>
+        <div id="state-sub">EMPURRE O INIMIGO PARA FORA DA ARENA</div>
+        <div id="state-hint">[ CLIQUE PARA PERSONALIZAR ]</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- TELA DE CUSTOMIZAÇÃO                                    -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="customize-screen" style="display:none;">
+        <div id="cust-header">
+            <div id="cust-title">CRIE SEU LUTADOR</div>
+            <div id="cust-subtitle">PERSONALIZE FORMA, COR, OLHOS E BOCA</div>
+        </div>
+
+        <div id="cust-panel">
+            <!-- FORMA DO CORPO -->
+            <div class="cust-row">
+                <div class="cust-label">FORMA</div>
+                <div class="cust-selector">
+                    <button class="cust-arrow" data-cat="shape" data-dir="-1">◄</button>
+                    <div class="cust-value" id="cust-shape-display">■ Cubo</div>
+                    <button class="cust-arrow" data-cat="shape" data-dir="1">►</button>
+                </div>
+            </div>
+
+            <!-- COR NEON -->
+            <div class="cust-row">
+                <div class="cust-label">COR</div>
+                <div class="cust-selector">
+                    <button class="cust-arrow" data-cat="color" data-dir="-1">◄</button>
+                    <div class="cust-value" id="cust-color-display">● Ciano</div>
+                    <button class="cust-arrow" data-cat="color" data-dir="1">►</button>
+                </div>
+            </div>
+
+            <!-- OLHOS -->
+            <div class="cust-row">
+                <div class="cust-label">OLHOS</div>
+                <div class="cust-selector">
+                    <button class="cust-arrow" data-cat="eyes" data-dir="-1">◄</button>
+                    <div class="cust-value" id="cust-eyes-display">◉ Redondos</div>
+                    <button class="cust-arrow" data-cat="eyes" data-dir="1">►</button>
+                </div>
+            </div>
+
+            <!-- BOCA -->
+            <div class="cust-row">
+                <div class="cust-label">BOCA</div>
+                <div class="cust-selector">
+                    <button class="cust-arrow" data-cat="mouth" data-dir="-1">◄</button>
+                    <div class="cust-value" id="cust-mouth-display">‿ Simples</div>
+                    <button class="cust-arrow" data-cat="mouth" data-dir="1">►</button>
+                </div>
+            </div>
+
+            <!-- DESCRIÇÃO -->
+            <div id="cust-desc"></div>
+        </div>
+
+        <!-- BOTÃO FIGHT -->
+        <button id="cust-fight-btn">⚔ LUTAR!</button>
+
+        <!-- RANDOMIZE -->
+        <button id="cust-random-btn">🎲 ALEATÓRIO</button>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
