@@ -5,7 +5,14 @@ import { mat4 } from 'gl-matrix';
 import { mvPush, mvPop, getMV, drawCube, drawFloor, useObjShader } from '../engine/Renderer.js';
 import { GROUND_Y } from './Physics.js';
 
-export const ARENA_RADIUS = 12.0 * Math.SQRT2; // doubled area (radius × sqrt(2))
+export let ARENA_RADIUS = 16.0; // base arena size (will scale with enemy count)
+
+/**
+ * Define o raio da arena baseado no número de inimigos.
+ */
+export function setArenaRadius(numEnemies) {
+    ARENA_RADIUS = 16.0 * Math.sqrt(numEnemies); // escala com √n para manter densidade
+}
 
 /**
  * Verifica se a entidade está fora da arena.

@@ -37,36 +37,45 @@ export class EnemyAI {
         this.attackArm    = 'left';
         this.comboCount   = 0;       // quantos socos seguidos
         this.dodgeCooldown = 0;
+        this.currentTarget = null;   // alvo atual (pode ser player ou outro inimigo)
+        this.targetChangeTimer = 0;  // timer para trocar de alvo
     }
 
-    update(enemy, player, gameTime, arenaRadius) {
+    update(enemy, player, allEnemies, gameTime, arenaRadius) {
         const e = enemy;
-        const p = player;
 
-        const dx   = p.pos[0] - e.pos[0];
-        const dz   = p.pos[2] - e.pos[2];
+        // Escolher alvo (player ou outro inimigo próximo)
+        this.targetChangeTimer--;
+        if (!this.currentTarget || this.targetChangeTimer <= 0) {
+            this.currentTarget = this._chooseTarget(e, player, allEnemies);
+            this.targetChangeTimer = _randRange(120, 240); // 2-4 segundos entre mudanças de alvo
+        }
+
+        const target = this.currentTarget || player;
+        const dx   = target.pos[0] - e.pos[0];
+        const dz   = target.pos[2] - e.pos[2];
         const dist = Math.sqrt(dx * dx + dz * dz) || 1;
         const nx   = dx / dist;
         const nz   = dz / dist;
 
         const moveForce = e.onGround ? 0.028 : 0.008; // mais rápido que antes
 
-        // Yaw: olhar para o jogador
+        // Yaw: olhar para o alvo
         const targetYaw = Math.atan2(nx, nz);
         e.rot[1] = lerp(e.rot[1], targetYaw, 0.10);
 
         // Timer de estado
         this.stateTimer++;
         if (this.stateTimer >= this.stateDuration) {
-            this._transition(dist, e.hp / e.maxHp, e, p, arenaRadius);
+            this._transition(dist, e.hp / e.maxHp, e, target, arenaRadius);
         }
 
         // Dodge cooldown
         if (this.dodgeCooldown > 0) this.dodgeCooldown--;
 
         // ── DODGE: esquivar de soco ──────────────────────
-        const playerPunching = p.arms.left.currentExt > 2.5 || p.arms.right.currentExt > 2.5;
-        if (playerPunching && dist < 5 && this.dodgeCooldown <= 0 && this.state !== AI_CHARGE) {
+        const targetPunching = target.arms.left.currentExt > 2.5 || target.arms.right.currentExt > 2.5;
+        if (targetPunching && dist < 5 && this.dodgeCooldown <= 0 && this.state !== AI_CHARGE) {
             // Esquiva lateral rápida
             const perpX = -nz * this.circleDir;
             const perpZ =  nx * this.circleDir;
@@ -76,13 +85,13 @@ export class EnemyAI {
         }
 
         // ── POSICIONAMENTO INTELIGENTE ───────────────────
-        // Tenta empurrar o jogador para fora: posiciona-se entre
-        // o jogador e o centro da arena
-        const playerEdge = Math.sqrt(p.pos[0] ** 2 + p.pos[2] ** 2);
+        // Tenta empurrar o alvo para fora: posiciona-se entre
+        // o alvo e o centro da arena
+        const targetEdge = Math.sqrt(target.pos[0] ** 2 + target.pos[2] ** 2);
         const enemyEdge  = Math.sqrt(e.pos[0] ** 2 + e.pos[2] ** 2);
 
-        // Se o inimigo está mais perto da borda que o jogador, corrigir posição
-        if (enemyEdge > arenaRadius * 0.55 && enemyEdge > playerEdge) {
+        // Se o inimigo está mais perto da borda que o alvo, corrigir posição
+        if (enemyEdge > arenaRadius * 0.55 && enemyEdge > targetEdge) {
             const toCenterX = -e.pos[0] / (enemyEdge || 1);
             const toCenterZ = -e.pos[2] / (enemyEdge || 1);
             const urgency = clamp((enemyEdge - arenaRadius * 0.5) / (arenaRadius * 0.5), 0, 1);
@@ -124,10 +133,46 @@ export class EnemyAI {
         this._lerpArms(e, 0.12);
     }
 
-    _transition(dist, hpRatio, enemy, player, arenaRadius) {
+    /**
+     * Escolhe um alvo para atacar: pode ser o player ou outro inimigo.
+     * Prioriza alvos mais próximos, mas com chance de focar no player.
+     */
+    _chooseTarget(enemy, player, allEnemies) {
+        const candidates = [player];
+        
+        // Adiciona outros inimigos como possíveis alvos
+        allEnemies.forEach(otherEnemy => {
+            if (otherEnemy !== enemy) {
+                candidates.push(otherEnemy);
+            }
+        });
+
+        // 50% de chance de sempre focar no player (mais desafiador)
+        if (Math.random() < 0.5) {
+            return player;
+        }
+
+        // Caso contrário, escolhe o alvo mais próximo
+        let closestTarget = player;
+        let minDist = Infinity;
+
+        candidates.forEach(candidate => {
+            const dx = candidate.pos[0] - enemy.pos[0];
+            const dz = candidate.pos[2] - enemy.pos[2];
+            const dist = dx * dx + dz * dz;
+            if (dist < minDist) {
+                minDist = dist;
+                closestTarget = candidate;
+            }
+        });
+
+        return closestTarget;
+    }
+
+    _transition(dist, hpRatio, enemy, target, arenaRadius) {
         const weights = [];
-        const playerEdge = Math.sqrt(player.pos[0] ** 2 + player.pos[2] ** 2);
-        const playerNearEdge = playerEdge > arenaRadius * 0.5;
+        const targetEdge = Math.sqrt(target.pos[0] ** 2 + target.pos[2] ** 2);
+        const targetNearEdge = targetEdge > arenaRadius * 0.5;
 
         if (dist > 6) {
             weights.push({ s: AI_APPROACH, w: 3 });
@@ -135,12 +180,12 @@ export class EnemyAI {
             weights.push({ s: AI_CIRCLE,   w: 1 });
         } else if (dist > 3.5) {
             weights.push({ s: AI_ATTACK,   w: 3 + hpRatio * 2 });
-            weights.push({ s: AI_CHARGE,   w: playerNearEdge ? 4 : 1 }); // charge se jogador perto da borda!
+            weights.push({ s: AI_CHARGE,   w: targetNearEdge ? 4 : 1 }); // charge se alvo perto da borda!
             weights.push({ s: AI_CIRCLE,   w: 2 });
             weights.push({ s: AI_RETREAT,  w: 1.5 * (1 - hpRatio) });
         } else {
             weights.push({ s: AI_ATTACK,   w: 4 + hpRatio * 3 });
-            weights.push({ s: AI_CHARGE,   w: playerNearEdge ? 3 : 0.5 });
+            weights.push({ s: AI_CHARGE,   w: targetNearEdge ? 3 : 0.5 });
             weights.push({ s: AI_CIRCLE,   w: 1 });
             weights.push({ s: AI_RETREAT,  w: 2 * (1 - hpRatio) });
         }

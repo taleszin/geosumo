@@ -32,7 +32,7 @@ import { updateEntityPhysics, checkArmGround,
          checkArmHit, bodyCollision, GROUND_Y }          from './game/Physics.js';
 import { updatePlayerMovement, updatePlayerArms }        from './game/Player.js';
 import { EnemyAI }                                       from './game/Enemy.js';
-import { ARENA_RADIUS, checkArenaEdge,
+import { ARENA_RADIUS, checkArenaEdge, setArenaRadius,
          drawArena, drawShadow }                         from './game/Arena.js';
 import { drawEntity, drawEntityPreview }                 from './game/EntityRenderer.js';
 
@@ -58,10 +58,11 @@ let round    = 1;
 let gameTime = 0;
 let slowMo   = 1.0;
 
-let player  = null;
-let enemy   = null;
-let enemyAI = null;
-let camera  = null;
+let player   = null;
+let enemies  = [];     // array de inimigos (1-4)
+let enemyAIs = [];     // array de IAs para cada inimigo
+let camera   = null;
+let numEnemies = 1;    // número escolhido de adversários (1-4)
 
 // Customização do jogador
 let playerCustom = defaultCustomization();
@@ -87,8 +88,6 @@ let _lastEdgeWarn = 0; // usado para evitar spam de SFX
 
 // ── DOM refs ──────────────────────────────────────────────────
 const $canvas       = /** @type {HTMLCanvasElement} */ (document.getElementById('glcanvas'));
-const $hpPlayer     = document.getElementById('hp-player');
-const $hpEnemy      = document.getElementById('hp-enemy');
 const $roundInfo    = document.getElementById('round-info');
 const $roundNum     = document.getElementById('round-num');
 const $dbgPos       = document.getElementById('dbg-pos');
@@ -101,14 +100,18 @@ const $stateHint    = document.getElementById('state-hint');
 const $hud          = document.getElementById('hud');
 
 // Customization DOM
-const $custScreen    = document.getElementById('customize-screen');
-const $custShapeDisp = document.getElementById('cust-shape-display');
-const $custColorDisp = document.getElementById('cust-color-display');
-const $custEyesDisp  = document.getElementById('cust-eyes-display');
-const $custMouthDisp = document.getElementById('cust-mouth-display');
-const $custDesc      = document.getElementById('cust-desc');
-const $custFightBtn  = document.getElementById('cust-fight-btn');
-const $custRandomBtn = document.getElementById('cust-random-btn');
+const $custScreen      = document.getElementById('customize-screen');
+const $custShapeDisp   = document.getElementById('cust-shape-display');
+const $custColorDisp   = document.getElementById('cust-color-display');
+const $custEyesDisp    = document.getElementById('cust-eyes-display');
+const $custMouthDisp   = document.getElementById('cust-mouth-display');
+const $custEnemyDisp   = document.getElementById('cust-enemy-display');
+const $custDesc        = document.getElementById('cust-desc');
+const $custFightBtn    = document.getElementById('cust-fight-btn');
+const $custRandomBtn   = document.getElementById('cust-random-btn');
+
+// HP bar containers (will be generated dynamically)
+const $hpBars = document.getElementById('hp-bars');
 
 // ═════════════════════════════════════════════════════════════
 // Bootstrap
@@ -194,12 +197,12 @@ function tick(now) {
         camera.apply(getMV());
         drawArena(gameTime);
 
-        if (player && enemy) {
+        if (player && enemies.length > 0) {
             useObjShader();
             drawShadow(player);
-            drawShadow(enemy);
+            enemies.forEach(enemy => drawShadow(enemy));
             drawEntity(player, gameTime);
-            drawEntity(enemy, gameTime);
+            enemies.forEach(enemy => drawEntity(enemy, gameTime));
             endObjShader();
         }
     }
@@ -264,8 +267,8 @@ function _updateCountdown(dt) {
     }
 
     // Camera segue durante countdown
-    if (player && enemy) {
-        camera.update(player.pos, player.rot[1], enemy.pos);
+    if (player && enemies.length > 0) {
+        camera.update(player.pos, player.rot[1], enemies[0].pos);
     }
 }
 
@@ -277,11 +280,10 @@ function _updateFight(dt) {
     const input = getInput();
 
     // 1. Player com feedback de charge
-    // camYaw não é mais usado (câmera fixa)
     const moveResult = updatePlayerMovement(player, input, 0);
     updatePlayerArms(player, input);
 
-    // Movement SFX level (dependendo da velocidade)
+    // Movement SFX level
     const hSpeed = Math.sqrt(player.vel[0] ** 2 + player.vel[2] ** 2);
     SFX.setMovementLevel(Math.min(1, hSpeed / 0.9));
 
@@ -304,105 +306,158 @@ function _updateFight(dt) {
         SFX.playDash(moveResult.dashPower);
     }
 
-    // 2. Enemy AI
-    enemyAI.update(enemy, player, gameTime, ARENA_RADIUS);
+    // 2. Atualizar todos os inimigos e suas IAs
+    enemies.forEach((enemy, idx) => {
+        enemyAIs[idx].update(enemy, player, enemies, gameTime, ARENA_RADIUS);
+        updateEntityPhysics(enemy);
+        tickExpression(enemy);
+        checkArmGround(enemy, 'left');
+        checkArmGround(enemy, 'right');
+    });
 
-    // 3. Física
+    // 3. Física do player
     updateEntityPhysics(player);
-    updateEntityPhysics(enemy);
-
-    // 4. Tick expressões
     tickExpression(player);
-    tickExpression(enemy);
-
-    // 5. Colisão braço vs chão
     checkArmGround(player, 'left');
     checkArmGround(player, 'right');
-    checkArmGround(enemy,  'left');
-    checkArmGround(enemy,  'right');
 
-    // 6. Colisão braço vs corpo (com EXPRESSÕES)
+    // 4. Colisões: player vs cada inimigo
     const shakeCb = (amt) => camera.addShake(amt);
-    const hitEL = checkArmHit(player, enemy, 'left',  -1, shakeCb, ARENA_RADIUS);
-    const hitER = checkArmHit(player, enemy, 'right',  1, shakeCb, ARENA_RADIUS);
-    const hitPL = checkArmHit(enemy, player, 'left',  -1, shakeCb, ARENA_RADIUS);
-    const hitPR = checkArmHit(enemy, player, 'right',  1, shakeCb, ARENA_RADIUS);
+    let maxHitForce = 0;
 
-    // Expressões baseadas nos hits
-    if (hitEL || hitER) {
-        // Inimigo foi atingido
-        const force = Math.max(hitEL || 0, hitER || 0);
-        if (force > 0.3) {
-            setExpression(enemy, EXPR_STUNNED, 40);
-        } else {
-            setExpression(enemy, EXPR_HURT, 20);
+    enemies.forEach((enemy) => {
+        // Braço do player vs corpo do inimigo
+        const hitEL = checkArmHit(player, enemy, 'left',  -1, shakeCb, ARENA_RADIUS);
+        const hitER = checkArmHit(player, enemy, 'right',  1, shakeCb, ARENA_RADIUS);
+        
+        // Braço do inimigo vs corpo do player
+        const hitPL = checkArmHit(enemy, player, 'left',  -1, shakeCb, ARENA_RADIUS);
+        const hitPR = checkArmHit(enemy, player, 'right',  1, shakeCb, ARENA_RADIUS);
+
+        // Expressões dos hits
+        if (hitEL || hitER) {
+            const force = Math.max(hitEL || 0, hitER || 0);
+            if (force > 0.3) {
+                setExpression(enemy, EXPR_STUNNED, 40);
+            } else {
+                setExpression(enemy, EXPR_HURT, 20);
+            }
+            setExpression(player, EXPR_ATTACK, 15);
+            SFX.playImpact(force);
+            Haptic.impactPulse(force);
+            maxHitForce = Math.max(maxHitForce, force);
         }
-        setExpression(player, EXPR_ATTACK, 15);
-        SFX.playImpact(force);
-        Haptic.impactPulse(force);
-    }
-    if (hitPL || hitPR) {
-        // Jogador foi atingido
-        const force = Math.max(hitPL || 0, hitPR || 0);
-        if (force > 0.3) {
-            setExpression(player, EXPR_STUNNED, 40);
-        } else {
-            setExpression(player, EXPR_HURT, 20);
+        if (hitPL || hitPR) {
+            const force = Math.max(hitPL || 0, hitPR || 0);
+            if (force > 0.3) {
+                setExpression(player, EXPR_STUNNED, 40);
+            } else {
+                setExpression(player, EXPR_HURT, 20);
+            }
+            setExpression(enemy, EXPR_ATTACK, 15);
+            SFX.playImpact(force);
+            Haptic.heavyPulse();
+            maxHitForce = Math.max(maxHitForce, force);
         }
-        setExpression(enemy, EXPR_ATTACK, 15);
-        SFX.playImpact(force);
-        Haptic.heavyPulse();
+
+        // Body collision player vs enemy
+        const bodyForce = bodyCollision(player, enemy);
+        if (bodyForce > 0.1) {
+            setExpression(player, EXPR_ATTACK, 10);
+            setExpression(enemy, EXPR_ATTACK, 10);
+            camera.addShake(bodyForce * 1.5);
+            SFX.playBodySlam(bodyForce);
+        }
+        if (bodyForce > 0.3) {
+            const pSpeed = Math.sqrt(player.vel[0] ** 2 + player.vel[2] ** 2);
+            const eSpeed = Math.sqrt(enemy.vel[0] ** 2 + enemy.vel[2] ** 2);
+            if (pSpeed > eSpeed) {
+                setExpression(enemy, EXPR_STUNNED, 30);
+            } else {
+                setExpression(player, EXPR_STUNNED, 30);
+            }
+            slowMo = 0.25;
+        }
+    });
+
+    // 5. Colisões entre inimigos
+    for (let i = 0; i < enemies.length; i++) {
+        for (let j = i + 1; j < enemies.length; j++) {
+            // Braços de um inimigo vs corpo de outro
+            const hitI_L = checkArmHit(enemies[i], enemies[j], 'left',  -1, shakeCb, ARENA_RADIUS);
+            const hitI_R = checkArmHit(enemies[i], enemies[j], 'right',  1, shakeCb, ARENA_RADIUS);
+            const hitJ_L = checkArmHit(enemies[j], enemies[i], 'left',  -1, shakeCb, ARENA_RADIUS);
+            const hitJ_R = checkArmHit(enemies[j], enemies[i], 'right',  1, shakeCb, ARENA_RADIUS);
+
+            // Expressões nos hits entre inimigos
+            if (hitI_L || hitI_R) {
+                const force = Math.max(hitI_L || 0, hitI_R || 0);
+                if (force > 0.3) {
+                    setExpression(enemies[j], EXPR_STUNNED, 40);
+                } else {
+                    setExpression(enemies[j], EXPR_HURT, 20);
+                }
+                setExpression(enemies[i], EXPR_ATTACK, 15);
+                SFX.playImpact(force * 0.8); // som um pouco mais baixo para não cansar
+                maxHitForce = Math.max(maxHitForce, force);
+            }
+            if (hitJ_L || hitJ_R) {
+                const force = Math.max(hitJ_L || 0, hitJ_R || 0);
+                if (force > 0.3) {
+                    setExpression(enemies[i], EXPR_STUNNED, 40);
+                } else {
+                    setExpression(enemies[i], EXPR_HURT, 20);
+                }
+                setExpression(enemies[j], EXPR_ATTACK, 15);
+                SFX.playImpact(force * 0.8);
+                maxHitForce = Math.max(maxHitForce, force);
+            }
+
+            // Body collision entre inimigos
+            bodyCollision(enemies[i], enemies[j]);
+        }
     }
 
     // Slow-mo em impactos fortes
-    const maxHitForce = Math.max(hitEL || 0, hitER || 0, hitPL || 0, hitPR || 0);
     if (maxHitForce > 0.15) {
         slowMo = clamp(0.15 + (1.0 - maxHitForce) * 0.5, 0.1, 0.6);
     }
 
-
-    // 7. Body collision com expressão de body slam
-    const bodyForce = bodyCollision(player, enemy);
-    if (bodyForce > 0.1) {
-        // Ambos fazem cara de esforço
-        setExpression(player, EXPR_ATTACK, 10);
-        setExpression(enemy, EXPR_ATTACK, 10);
-        camera.addShake(bodyForce * 1.5);
-        SFX.playBodySlam(bodyForce);
-    }
-    if (bodyForce > 0.3) {
-        // Body slam! Stunned para quem levou pior
-        const pSpeed = Math.sqrt(player.vel[0] ** 2 + player.vel[2] ** 2);
-        const eSpeed = Math.sqrt(enemy.vel[0] ** 2 + enemy.vel[2] ** 2);
-        if (pSpeed > eSpeed) {
-            setExpression(enemy, EXPR_STUNNED, 30);
-        } else {
-            setExpression(player, EXPR_STUNNED, 30);
-        }
-        slowMo = 0.25;
-    }
-
-    // 8. Arena edge → win/lose + EDGE WARNING
+    // 6. Edge warning
     const playerEdge = Math.sqrt(player.pos[0] ** 2 + player.pos[2] ** 2);
     const edgeRatio = playerEdge / ARENA_RADIUS;
     if (edgeRatio > 0.65) {
         edgeWarning = clamp((edgeRatio - 0.65) / 0.35, 0, 1);
     }
-    // Edge warning SFX when crosses threshold
     if (edgeWarning > 0.4 && _lastEdgeWarn <= 0.4) {
         SFX.playEdgeWarning(edgeWarning);
         Haptic.warningPulse();
     }
     _lastEdgeWarn = edgeWarning;
 
+    // 7. Verificar ring-outs e derrotas
     const playerOut = checkArenaEdge(player);
-    const enemyOut  = checkArenaEdge(enemy);
+    
+    // Remover inimigos mortos ou fora da arena
+    const aliveEnemies = [];
+    const aliveAIs = [];
+    enemies.forEach((enemy, idx) => {
+        const enemyOut = checkArenaEdge(enemy);
+        const dead = enemy.hp <= 0 || enemyOut;
+        if (!dead) {
+            aliveEnemies.push(enemy);
+            aliveAIs.push(enemyAIs[idx]);
+        }
+    });
+    enemies = aliveEnemies;
+    enemyAIs = aliveAIs;
 
-    if (enemyOut || enemy.hp <= 0) {
+    // Condições de vitória/derrota
+    if (enemies.length === 0) {
         phase = 'win';
         $hud.style.display = 'none';
         $stateTitle.style.fontSize = '';
-        showStateScreen('VITÓRIA!', `Round ${round} completado`,
+        showStateScreen('VITÓRIA!', `Round ${round} completado — ${numEnemies} adversários derrotados!`,
             '[ TOQUE OU CLIQUE PARA CONTINUAR ]', '#0f0');
         SFX.playWin();
     } else if (playerOut || player.hp <= 0) {
@@ -414,12 +469,25 @@ function _updateFight(dt) {
         SFX.playLose();
     }
 
-    // 9. Cor reage ao HP
+    // 8. Cor reage ao HP
     _updateColorByHP(player);
-    _updateColorByHP(enemy);
+    enemies.forEach(enemy => _updateColorByHP(enemy));
 
-    // 10. Camera follow
-    camera.update(player.pos, player.rot[1], enemy.pos);
+    // 9. Camera follow - foca no inimigo mais próximo
+    if (enemies.length > 0) {
+        let closestEnemy = enemies[0];
+        let minDist = Infinity;
+        enemies.forEach(enemy => {
+            const dx = enemy.pos[0] - player.pos[0];
+            const dz = enemy.pos[2] - player.pos[2];
+            const dist = dx * dx + dz * dz;
+            if (dist < minDist) {
+                minDist = dist;
+                closestEnemy = enemy;
+            }
+        });
+        camera.update(player.pos, player.rot[1], closestEnemy.pos);
+    }
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -482,6 +550,7 @@ function _updateCustomizeDisplay() {
     $custColorDisp.textContent = `${color.icon} ${color.name}`;
     $custEyesDisp.textContent  = `${eyes.icon} ${eyes.name}`;
     $custMouthDisp.textContent = `${mouth.icon} ${mouth.name}`;
+    $custEnemyDisp.textContent = numEnemies === 1 ? '1 adversário' : `${numEnemies} adversários`;
 
     const r = Math.round(color.body[0] * 255);
     const g = Math.round(color.body[1] * 255);
@@ -515,6 +584,9 @@ function _initCustomizeUI() {
                     break;
                 case 'mouth':
                     playerCustom.mouth = cycleOption(MOUTH_IDS, playerCustom.mouth, dir);
+                    break;
+                case 'enemies':
+                    numEnemies = Math.max(1, Math.min(4, numEnemies + dir));
                     break;
             }
             _updateCustomizeDisplay();
@@ -578,15 +650,33 @@ function exitCustomize() {
 function startCountdown() {
     exitCustomize();
 
-    // Criar entidades
-    player = makePlayerEntity([0, 0, -4], 1.2, playerCustom);
-    // Se user apertou ALEATÓRIO antes de iniciar, use essa customização para o inimigo;
-    // caso contrário, gere aleatória.
-    enemy = makeEnemyEntity([0, 0, 4], 1.2 + round * 0.1, enemyCustom || randomCustomization());
-    enemyAI = new EnemyAI();
+    // Ajustar tamanho da arena baseado no número de inimigos
+    setArenaRadius(numEnemies);
 
-    // Snap camera
-    camera.snapTo(player.pos, player.rot[1], enemy.pos);
+    // Criar player
+    player = makePlayerEntity([0, 0, -4], 1.2, playerCustom);
+
+    // Criar múltiplos inimigos em posições distribuídas em círculo
+    enemies = [];
+    enemyAIs = [];
+    for (let i = 0; i < numEnemies; i++) {
+        const angle = (i / numEnemies) * Math.PI * 2 + Math.PI; // começa atrás do player
+        const dist = 6 + i * 1.5; // distribui em profundidade também
+        const x = Math.sin(angle) * dist;
+        const z = Math.cos(angle) * dist;
+        const size = 1.2 + round * 0.1;
+        
+        const enemy = makeEnemyEntity([x, 0, z], size, randomCustomization());
+        enemies.push(enemy);
+        enemyAIs.push(new EnemyAI());
+    }
+
+    // Snap camera - foca no centro entre player e inimigos
+    const centerEnemy = enemies[0];
+    camera.snapTo(player.pos, player.rot[1], centerEnemy.pos);
+
+    // Criar barras de HP dinamicamente
+    _createDynamicHPBars();
 
     // Se estamos em modo de desenvolvimento/teste, pule o countdown
     if (typeof DEV !== 'undefined' && DEV.hideRound) {
@@ -596,7 +686,7 @@ function startCountdown() {
         $roundNum.textContent = round;
         edgeWarning = 0;
         // Garantir que camera esteja aplicada no frame seguinte
-        camera.update(player.pos, player.rot[1], enemy.pos);
+        camera.update(player.pos, player.rot[1], centerEnemy.pos);
         return;
     }
 
@@ -645,30 +735,70 @@ function showStateScreen(title, sub, hint, color) {
     $stateHint.textContent     = hint;
 }
 
+function _createDynamicHPBars() {
+    // Limpa barras anteriores
+    $hpBars.innerHTML = '';
+
+    // Barra do player
+    const playerContainer = document.createElement('div');
+    playerContainer.className = 'hp-container';
+    playerContainer.innerHTML = `
+        <span class="hp-label">PLAYER</span>
+        <div id="hp-player" class="hp-fill"></div>
+    `;
+    $hpBars.appendChild(playerContainer);
+
+    // VS text
+    const vsText = document.createElement('span');
+    vsText.id = 'vs-text';
+    vsText.textContent = 'VS';
+    $hpBars.appendChild(vsText);
+
+    // Barras dos inimigos
+    enemies.forEach((_, idx) => {
+        const enemyContainer = document.createElement('div');
+        enemyContainer.className = 'hp-container';
+        enemyContainer.innerHTML = `
+            <span class="hp-label">ENEMY ${idx + 1}</span>
+            <div id="hp-enemy-${idx}" class="hp-fill"></div>
+        `;
+        $hpBars.appendChild(enemyContainer);
+    });
+}
+
 function updateHUD() {
     if (player) {
         const hpP = clamp(player.hp / player.maxHp, 0, 1);
-        $hpPlayer.style.width = `${hpP * 100}%`;
-        // Cor da barra muda conforme HP
-        if (hpP > 0.5) {
-            $hpPlayer.style.background = `linear-gradient(90deg, #0ff, #0f0)`;
-        } else if (hpP > 0.25) {
-            $hpPlayer.style.background = `linear-gradient(90deg, #ff0, #f80)`;
-        } else {
-            $hpPlayer.style.background = `linear-gradient(90deg, #f22, #f00)`;
+        const $hpPlayerBar = document.getElementById('hp-player');
+        if ($hpPlayerBar) {
+            $hpPlayerBar.style.width = `${hpP * 100}%`;
+            // Cor da barra muda conforme HP
+            if (hpP > 0.5) {
+                $hpPlayerBar.style.background = `linear-gradient(90deg, #0ff, #0f0)`;
+            } else if (hpP > 0.25) {
+                $hpPlayerBar.style.background = `linear-gradient(90deg, #ff0, #f80)`;
+            } else {
+                $hpPlayerBar.style.background = `linear-gradient(90deg, #f22, #f00)`;
+            }
         }
     }
-    if (enemy) {
+    
+    // Atualizar barras de cada inimigo
+    enemies.forEach((enemy, idx) => {
         const hpE = clamp(enemy.hp / enemy.maxHp, 0, 1);
-        $hpEnemy.style.width = `${hpE * 100}%`;
-        if (hpE > 0.5) {
-            $hpEnemy.style.background = `linear-gradient(90deg, #f0f, #f0a)`;
-        } else if (hpE > 0.25) {
-            $hpEnemy.style.background = `linear-gradient(90deg, #ff0, #f80)`;
-        } else {
-            $hpEnemy.style.background = `linear-gradient(90deg, #f22, #f00)`;
+        const $hpEnemyBar = document.getElementById(`hp-enemy-${idx}`);
+        if ($hpEnemyBar) {
+            $hpEnemyBar.style.width = `${hpE * 100}%`;
+            if (hpE > 0.5) {
+                $hpEnemyBar.style.background = `linear-gradient(90deg, #f0f, #f0a)`;
+            } else if (hpE > 0.25) {
+                $hpEnemyBar.style.background = `linear-gradient(90deg, #ff0, #f80)`;
+            } else {
+                $hpEnemyBar.style.background = `linear-gradient(90deg, #f22, #f00)`;
+            }
         }
-    }
+    });
+
     if (player) {
         $dbgPos.textContent = `POS: ${player.pos[0].toFixed(1)}, ${player.pos[1].toFixed(1)}, ${player.pos[2].toFixed(1)}`;
         const spd = Math.sqrt(player.vel[0] ** 2 + player.vel[2] ** 2);
