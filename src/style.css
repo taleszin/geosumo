@@ -14,6 +14,10 @@ body {
     font-family: 'Segoe UI', 'Consolas', monospace;
     color: #0ff;
     user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
 }
 
 /* ── Canvas ─────────────────────────────────────────────── */
@@ -58,6 +62,9 @@ body {
     color: #8ff;
     margin-top: 2px;
 }
+
+/* 🔧 Ocultar contagem do round para acelerar testes */
+#round-num { display: none !important; }
 
 /* ── Barras de HP ───────────────────────────────────────── */
 #hp-bars {
@@ -369,4 +376,97 @@ body {
     border-color: rgba(200, 100, 255, 0.7);
     box-shadow: 0 0 15px rgba(200, 100, 255, 0.3);
     color: #f0c;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MOBILE / TOUCH ADAPTATIONS
+   ═══════════════════════════════════════════════════════════ */
+
+/* Prevent pull-to-refresh and overscroll on canvas */
+#glcanvas {
+    touch-action: none;
+    -webkit-touch-callout: none;
+}
+
+/* Touch overlay (created dynamically by Input.js) */
+#touch-overlay {
+    touch-action: none;
+}
+
+/* On narrow / portrait screens */
+@media (max-width: 700px) {
+    #panel-left {
+        font-size: 0.6em;
+        bottom: 8px;
+        left: 8px;
+    }
+    #panel-right {
+        font-size: 0.55em;
+        top: auto;
+        bottom: 8px;
+        right: 8px;
+    }
+    #panel-bottom {
+        font-size: 0.5em;
+    }
+    #panel-top {
+        font-size: 0.85em;
+    }
+    #game-title {
+        font-size: 0.9em;
+    }
+    #hp-bars {
+        font-size: 0.8em;
+        gap: 6px;
+    }
+    .hp-container {
+        max-width: 110px;
+    }
+    #state-title {
+        font-size: 2em;
+    }
+    #state-sub {
+        font-size: 0.85em;
+    }
+    #state-hint {
+        font-size: 0.7em;
+    }
+
+    /* Customize screen mobile */
+    #cust-panel {
+        max-width: 95vw;
+        padding: 8px;
+    }
+    .cust-row {
+        flex-direction: column;
+        gap: 2px;
+    }
+    .cust-label {
+        min-width: auto;
+        text-align: center;
+    }
+    #cust-fight-btn {
+        font-size: 1em;
+        padding: 12px 32px;
+    }
+    #cust-random-btn {
+        font-size: 0.7em;
+        padding: 6px 16px;
+    }
+}
+
+/* Very small / portrait phones */
+@media (max-width: 420px) {
+    #panel-left {
+        font-size: 0.5em;
+    }
+    #panel-right {
+        display: none; /* hide debug on tiny screens */
+    }
+    #hp-bars {
+        gap: 4px;
+    }
+    .hp-container {
+        max-width: 80px;
+    }
 }

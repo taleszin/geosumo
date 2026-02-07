@@ -17,8 +17,9 @@ import './style.css';
 // ── Engine ────────────────────────────────────────────────────
 import { initRenderer, initArenaPlane, resizeViewport,
          beginFrame, useObjShader, endObjShader, getMV } from './engine/Renderer.js';
-import { initInput, getInput }                           from './engine/Input.js';
+import { initInput, getInput, isTouchActive }            from './engine/Input.js';
 import * as SFX                                           from './audio/SFX.js';
+import * as Haptic                                        from './engine/Haptic.js';
 import { Camera }                                        from './engine/Camera.js';
 import { lerp, clamp }                                   from './engine/MathUtils.js';
 
@@ -40,6 +41,13 @@ import { SHAPE_IDS, COLOR_IDS, EYE_IDS, MOUTH_IDS,
          getShape, getColor, getEyes, getMouth,
          cycleOption, defaultCustomization,
          randomCustomization }                           from './data/Customization.js';
+
+// ═════════════════════════════════════════════════════════════
+// Config de desenvolvimento (toggle para acelerar testes)
+// ═════════════════════════════════════════════════════════════
+const DEV = {
+    hideRound: true, // set to true to hide round HUD during tests
+};
 
 // ═════════════════════════════════════════════════════════════
 // Estado global
@@ -81,6 +89,7 @@ let _lastEdgeWarn = 0; // usado para evitar spam de SFX
 const $canvas       = /** @type {HTMLCanvasElement} */ (document.getElementById('glcanvas'));
 const $hpPlayer     = document.getElementById('hp-player');
 const $hpEnemy      = document.getElementById('hp-enemy');
+const $roundInfo    = document.getElementById('round-info');
 const $roundNum     = document.getElementById('round-num');
 const $dbgPos       = document.getElementById('dbg-pos');
 const $dbgVel       = document.getElementById('dbg-vel');
@@ -120,14 +129,19 @@ function boot() {
 
     // Audio init — cria AudioContext e prepara os sintetizadores.
     SFX.init();
-    // Resume on first click (sincroniza com política de autoplay dos navegadores)
-    document.addEventListener('click', () => SFX.resume(), { once: true });
+    // Resume on first click/touch (sincroniza com política de autoplay dos navegadores)
+    document.addEventListener('click',     () => SFX.resume(), { once: true });
+    document.addEventListener('touchstart', () => SFX.resume(), { once: true });
 
     _initCustomizeUI();
     _updatePreviewEntity();
 
-    showStateScreen('GEO SUMO', 'GEOMETRIC BRAWLER — EMPURRE PARA FORA', '[ CLIQUE PARA PERSONALIZAR ]', '#0ff');
+    showStateScreen('GEO SUMO', 'GEOMETRIC BRAWLER — EMPURRE PARA FORA', '[ TOQUE OU CLIQUE PARA PERSONALIZAR ]', '#0ff');
     $hud.style.display = 'none';
+    // Aplicar flag de dev: esconder contagem do round para testes rápidos
+    if (typeof DEV !== 'undefined' && DEV.hideRound && $roundInfo) {
+        $roundInfo.style.display = 'none';
+    }
 
     lastTime = performance.now();
     requestAnimationFrame(tick);
@@ -220,16 +234,28 @@ function _updateCountdown(dt) {
         countdownText = 'FIGHT!';
     }
 
-    $stateTitle.textContent = countdownText;
-    $stateTitle.style.color = countdownTimer <= 0 ? '#0f0' : '#0ff';
-    $stateTitle.style.fontSize = countdownTimer <= 0 ? '5rem' : '6rem';
-    $stateSub.textContent = '';
-    $stateHint.textContent = '';
+    // Se a flag de dev estiver ativa, suprima a contagem visual e o som
+    if (typeof DEV !== 'undefined' && DEV.hideRound) {
+        $stateTitle.textContent = '';
+        // garantir estilo consistente caso o elemento seja mostrado por engano
+        $stateTitle.style.color = '';
+        $stateTitle.style.fontSize = '';
+        $stateSub.textContent = '';
+        $stateHint.textContent = '';
+    } else {
+        $stateTitle.textContent = countdownText;
+        $stateTitle.style.color = countdownTimer <= 0 ? '#0f0' : '#0ff';
+        $stateTitle.style.fontSize = countdownTimer <= 0 ? '5rem' : '6rem';
+        $stateSub.textContent = '';
+        $stateHint.textContent = '';
+    }
 
-    // Play tick when stage changes
+    // Play tick when stage changes (skip sons em modo dev)
     if (countdownText !== _lastCountdownStage) {
         _lastCountdownStage = countdownText;
-        SFX.playCountdownTick(countdownText === 'FIGHT!' ? 'FIGHT' : countdownText);
+        if (!(typeof DEV !== 'undefined' && DEV.hideRound)) {
+            SFX.playCountdownTick(countdownText === 'FIGHT!' ? 'FIGHT' : countdownText);
+        }
     }
 
     if (countdownTimer <= -0.5) {
@@ -249,10 +275,10 @@ function _updateCountdown(dt) {
 
 function _updateFight(dt) {
     const input = getInput();
-    const camYaw = camera.getYaw();
 
     // 1. Player com feedback de charge
-    const moveResult = updatePlayerMovement(player, input, camYaw);
+    // camYaw não é mais usado (câmera fixa)
+    const moveResult = updatePlayerMovement(player, input, 0);
     updatePlayerArms(player, input);
 
     // Movement SFX level (dependendo da velocidade)
@@ -313,6 +339,7 @@ function _updateFight(dt) {
         }
         setExpression(player, EXPR_ATTACK, 15);
         SFX.playImpact(force);
+        Haptic.impactPulse(force);
     }
     if (hitPL || hitPR) {
         // Jogador foi atingido
@@ -324,6 +351,7 @@ function _updateFight(dt) {
         }
         setExpression(enemy, EXPR_ATTACK, 15);
         SFX.playImpact(force);
+        Haptic.heavyPulse();
     }
 
     // Slow-mo em impactos fortes
@@ -363,6 +391,7 @@ function _updateFight(dt) {
     // Edge warning SFX when crosses threshold
     if (edgeWarning > 0.4 && _lastEdgeWarn <= 0.4) {
         SFX.playEdgeWarning(edgeWarning);
+        Haptic.warningPulse();
     }
     _lastEdgeWarn = edgeWarning;
 
@@ -374,14 +403,14 @@ function _updateFight(dt) {
         $hud.style.display = 'none';
         $stateTitle.style.fontSize = '';
         showStateScreen('VITÓRIA!', `Round ${round} completado`,
-            '[ CLIQUE PARA PRÓXIMO ROUND ]', '#0f0');
+            '[ TOQUE OU CLIQUE PARA CONTINUAR ]', '#0f0');
         SFX.playWin();
     } else if (playerOut || player.hp <= 0) {
         phase = 'lose';
         $hud.style.display = 'none';
         $stateTitle.style.fontSize = '';
         showStateScreen('DERROTA', `Eliminado no round ${round}`,
-            '[ CLIQUE PARA RECOMEÇAR ]', '#f22');
+            '[ TOQUE OU CLIQUE PARA RECOMEÇAR ]', '#f22');
         SFX.playLose();
     }
 
@@ -559,7 +588,19 @@ function startCountdown() {
     // Snap camera
     camera.snapTo(player.pos, player.rot[1], enemy.pos);
 
-    // Countdown
+    // Se estamos em modo de desenvolvimento/teste, pule o countdown
+    if (typeof DEV !== 'undefined' && DEV.hideRound) {
+        phase = 'fight';
+        $hud.style.display = 'block';
+        $stateScreen.style.display = 'none';
+        $roundNum.textContent = round;
+        edgeWarning = 0;
+        // Garantir que camera esteja aplicada no frame seguinte
+        camera.update(player.pos, player.rot[1], enemy.pos);
+        return;
+    }
+
+    // Countdown normal
     phase = 'countdown';
     countdownTimer = 3.0;
     $hud.style.display = 'block';

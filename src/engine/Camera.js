@@ -1,59 +1,74 @@
 /**
- * Camera.js — Chase camera via mat4.lookAt.
+ * Camera.js — Câmera 2.5D FIXA (estilo isométrico/oblíquo).
  *
- * Câmera fica ATRÁS e ACIMA do jogador, olhando para o ponto médio
- * entre jogador e inimigo. Suavizada via lerp.
- * Toda a lógica opera em COORDENADAS DE MUNDO (Y = cima).
+ * Posição fixa em um ângulo diagonal, olhando para o centro da arena.
+ * Não rotaciona, apenas faz pan suave para enquadrar a ação.
+ * Muito melhor para UX de controles (especialmente mobile).
  */
 import { mat4, vec3 } from 'gl-matrix';
 import { lerp } from './MathUtils.js';
 
-// ── Parâmetros tunáveis ──────────────────────────────────────
-const DISTANCE   = 22;    // distância atrás do jogador
-const HEIGHT     = 16;    // altura acima do chão
-const LOOK_Y_OFF = 2.0;   // olha um pouco acima do centro das entidades
-const SMOOTH     = 0.05;  // suavização da posição (0 = sem, 1 = instant)
-const SMOOTH_TGT = 0.07;  // suavização do alvo (lookAt)
+// ── Posição fixa da câmera (world-space) ─────────────────────
+const BASE_EYE_X  = 18;    // diagonal (nordeste)
+const BASE_EYE_Y  = 24;    // bem acima
+const BASE_EYE_Z  = -18;   // diagonal
+const LOOK_Y_OFF  = 1.5;   // olha levemente acima do ground
+
+// ── Responsive: afasta em portrait para ver arena toda ───────
+const SMOOTH_PAN  = 0.08;  // suavização do target (pan)
 
 export class Camera {
     constructor() {
-        this.eyeX = 0;
-        this.eyeY = HEIGHT;
-        this.eyeZ = -DISTANCE;
+        // Eye position (fixed, mas com responsive multiplier)
+        this.eyeX = BASE_EYE_X;
+        this.eyeY = BASE_EYE_Y;
+        this.eyeZ = BASE_EYE_Z;
 
+        // Look-at target (pan para enquadrar a ação)
         this.tgtX = 0;
         this.tgtY = LOOK_Y_OFF;
         this.tgtZ = 0;
 
         this.shakeAmount = 0;
         this.viewMatrix = mat4.create();
+
+        this._eyeScale = 1;
+        this._lookOff  = LOOK_Y_OFF;
+    }
+
+    /** Ajusta zoom para aspect ratio (portrait = afasta). */
+    _calcResponsive() {
+        const aspect = window.innerWidth / window.innerHeight;
+        if (aspect < 1.0) {
+            const t = 1.0 - aspect;           // 0..~0.6 em celulares
+            this._eyeScale = 1 + t * 0.4;     // zoom out até 1.24x
+            this._lookOff  = LOOK_Y_OFF + t * 1.2;
+        } else {
+            this._eyeScale = 1;
+            this._lookOff  = LOOK_Y_OFF;
+        }
     }
 
     /**
-     * Posiciona a câmera atrás do jogador, olhando para o meio da ação.
+     * Atualiza o target (pan suave) para enquadrar player e enemy.
      */
     update(playerPos, playerYaw, enemyPos) {
-        const sinY = Math.sin(playerYaw);
-        const cosY = Math.cos(playerYaw);
+        this._calcResponsive();
 
-        // Posição ideal: atrás do jogador no eixo do yaw
-        const idealX = playerPos[0] - sinY * DISTANCE;
-        const idealY = playerPos[1] + HEIGHT;
-        const idealZ = playerPos[2] - cosY * DISTANCE;
+        // Eye position fixa (com responsive scale)
+        this.eyeX = BASE_EYE_X * this._eyeScale;
+        this.eyeY = BASE_EYE_Y * this._eyeScale;
+        this.eyeZ = BASE_EYE_Z * this._eyeScale;
 
-        // Alvo: 65% jogador, 35% inimigo (enquadra a ação)
-        const midX = playerPos[0] * 0.65 + enemyPos[0] * 0.35;
-        const midY = (playerPos[1] + enemyPos[1]) * 0.5 + LOOK_Y_OFF;
-        const midZ = playerPos[2] * 0.65 + enemyPos[2] * 0.35;
+        // Target: centro de ação (60% player, 40% enemy)
+        const midX = playerPos[0] * 0.6 + enemyPos[0] * 0.4;
+        const midY = (playerPos[1] + enemyPos[1]) * 0.5 + this._lookOff;
+        const midZ = playerPos[2] * 0.6 + enemyPos[2] * 0.4;
 
-        // Suavização
-        this.eyeX = lerp(this.eyeX, idealX, SMOOTH);
-        this.eyeY = lerp(this.eyeY, idealY, SMOOTH);
-        this.eyeZ = lerp(this.eyeZ, idealZ, SMOOTH);
-
-        this.tgtX = lerp(this.tgtX, midX, SMOOTH_TGT);
-        this.tgtY = lerp(this.tgtY, midY, SMOOTH_TGT);
-        this.tgtZ = lerp(this.tgtZ, midZ, SMOOTH_TGT);
+        // Pan suave
+        this.tgtX = lerp(this.tgtX, midX, SMOOTH_PAN);
+        this.tgtY = lerp(this.tgtY, midY, SMOOTH_PAN);
+        this.tgtZ = lerp(this.tgtZ, midZ, SMOOTH_PAN);
 
         // Shake decay
         this.shakeAmount *= 0.88;
@@ -61,7 +76,7 @@ export class Camera {
     }
 
     /**
-     * Gera a view matrix via lookAt e escreve na mvMatrix.
+     * Gera a view matrix via lookAt.
      */
     apply(mvMatrix) {
         const sx = (Math.random() - 0.5) * this.shakeAmount;
@@ -75,23 +90,20 @@ export class Camera {
         mat4.copy(mvMatrix, this.viewMatrix);
     }
 
-    /** Yaw da câmera (para movimento relativo do jogador). */
+    /** Yaw da câmera (sempre constante agora). */
     getYaw() {
-        const dx = this.tgtX - this.eyeX;
-        const dz = this.tgtZ - this.eyeZ;
-        return Math.atan2(dx, dz);
+        return Math.atan2(BASE_EYE_X, -BASE_EYE_Z); // ~2.356 rad (~135°)
     }
 
-    /** Posiciona instantaneamente (para início de round). */
+    /** Snap instantâneo (início de round). */
     snapTo(playerPos, playerYaw, enemyPos) {
-        const sinY = Math.sin(playerYaw);
-        const cosY = Math.cos(playerYaw);
-        this.eyeX = playerPos[0] - sinY * DISTANCE;
-        this.eyeY = playerPos[1] + HEIGHT;
-        this.eyeZ = playerPos[2] - cosY * DISTANCE;
-        this.tgtX = playerPos[0] * 0.65 + enemyPos[0] * 0.35;
-        this.tgtY = (playerPos[1] + enemyPos[1]) * 0.5 + LOOK_Y_OFF;
-        this.tgtZ = playerPos[2] * 0.65 + enemyPos[2] * 0.35;
+        this._calcResponsive();
+        this.eyeX = BASE_EYE_X * this._eyeScale;
+        this.eyeY = BASE_EYE_Y * this._eyeScale;
+        this.eyeZ = BASE_EYE_Z * this._eyeScale;
+        this.tgtX = playerPos[0] * 0.6 + enemyPos[0] * 0.4;
+        this.tgtY = (playerPos[1] + enemyPos[1]) * 0.5 + this._lookOff;
+        this.tgtZ = playerPos[2] * 0.6 + enemyPos[2] * 0.4;
         this.shakeAmount = 0;
     }
 

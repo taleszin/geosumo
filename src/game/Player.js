@@ -20,35 +20,22 @@ const CHARGE_SLOW  = 0.4;       // multiplica velocidade durante charge (frenage
  * Atualiza movimentação do jogador.
  * @param {object} player
  * @param {object} input
- * @param {number} camYaw — yaw da câmera
+ * @param {number} camYaw — IGNORADO (câmera agora é fixa)
  * @returns {{ charging: boolean, dashPower: number }} feedback para main.js
  */
 export function updatePlayerMovement(player, input, camYaw) {
     const force = player.onGround ? GROUND_FORCE : AIR_FORCE;
     let result = { charging: false, dashPower: 0 };
 
-    // Input raw em espaço de tela
-    let ix = 0, iz = 0;
-    if (input.keys['w']) iz += 1;
-    if (input.keys['s']) iz -= 1;
-    if (input.keys['a']) ix -= 1;
-    if (input.keys['d']) ix += 1;
-
-    // Normalizar diagonal
-    const len = Math.sqrt(ix * ix + iz * iz);
-    if (len > 0) {
-        ix /= len;
-        iz /= len;
-    }
-
-    // Rotacionar pelo yaw da câmera → espaço de mundo
-    const sinC = Math.sin(camYaw);
-    const cosC = Math.cos(camYaw);
-    const worldX = ix * cosC + iz * sinC;
-    const worldZ = -ix * sinC + iz * cosC;
+    // Input normalizado (moveX, moveZ já vem de -1..1)
+    // WORLD-SPACE: não rotaciona pelo camYaw (câmera fixa)
+    let worldX = input.moveX || 0;
+    let worldZ = input.moveZ || 0;
+    const len = Math.sqrt(worldX * worldX + worldZ * worldZ);
+    if (len > 1) { worldX /= len; worldZ /= len; }
 
     // ── CHARGE SYSTEM ────────────────────────────────────
-    const isChargingInput = input.keys['shift'] || input.keys[' '];
+    const isChargingInput = input.charge;
 
     if (isChargingInput && player.onGround) {
         chargeUp(player, 1 / 60);
@@ -69,14 +56,14 @@ export function updatePlayerMovement(player, input, camYaw) {
     }
 
     // Yaw: corpo aponta na direção do movimento
-    if (len > 0) {
+    if (len > 0.1) {
         const targetYaw = Math.atan2(worldX, worldZ);
         player.rot[1] = lerp(player.rot[1], targetYaw, YAW_LERP);
     }
 
     // ── TILT VISUAL ──────────────────────────────────────
     // Corpo se inclina levemente na direção do movimento (feedback visual)
-    if (len > 0 && player.onGround) {
+    if (len > 0.1 && player.onGround) {
         const speed = Math.sqrt(player.vel[0] ** 2 + player.vel[2] ** 2);
         const tiltAmount = clamp(speed * 0.15, 0, 0.12);
         // Tilt para frente (pitch) quando andando
@@ -98,9 +85,9 @@ export function updatePlayerArms(player, input) {
     const lag = 0.18;         // era 0.14 — braços mais rápidos
     const punchLag = 0.22;    // retração mais lenta (peso do soco)
 
-    const targetRotX = input.mouseY * 1.5;
-    const targetRotY = input.mouseX * 1.8;
-    let   targetExt  = 1.5 + (input.mouseY * -1.2);
+    const targetRotX = input.aimY * 1.5;
+    const targetRotY = input.aimX * 1.8;
+    let   targetExt  = 1.5 + (input.aimY * -1.2);
     targetExt = clamp(targetExt, 0.6, 4.5); // extensão máxima maior
 
     // Esquerdo

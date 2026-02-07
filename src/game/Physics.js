@@ -11,6 +11,7 @@
  */
 import { clamp, len2D } from '../engine/MathUtils.js';
 import * as SFX from '../audio/SFX.js';
+import * as Haptic from '../engine/Haptic.js';
 import { setExpression, EXPR_STUNNED } from './Entity.js';
 
 // ── Constantes de física ─────────────────────────────────────
@@ -26,11 +27,11 @@ const FLASH_DECAY     = 0.86;
 const HIT_COOLDOWN    = 8;           // frames entre hits (mais rápido = mais agressivo)
 
 // ── Constantes de impacto SUMO ───────────────────────────────
-const BASE_ARM_IMPACT    = 0.15;     // força base de um soco
+const BASE_ARM_IMPACT    = 0.11;     // força base de um soco (reduzido para UX melhor)
 const MOMENTUM_MULT      = 2.5;     // quanto a velocidade do atacante multiplica
 const ARM_SPEED_MULT     = 4.0;     // quanto a velocidade do braço contribui
-const EDGE_KNOCKBACK_MULT = 2.2;    // quanto a borda amplifica knockback
-const CHARGE_IMPACT_MULT  = 3.5;    // multiplicador de dano/impulso quando charge
+const EDGE_KNOCKBACK_MULT = 1.5;    // quanto a borda amplifica knockback (reduzido: 2.2 → 1.5)
+const CHARGE_IMPACT_MULT  = 2.5;    // multiplicador de dano/impulso quando charge (reduzido: 3.5 → 2.5)
 const BODY_SLAM_FORCE     = 0.25;   // força da colisão corpo-a-corpo com charge
 const BODY_SLAM_DAMAGE    = 8;      // dano do body slam
 const RECOIL_FACTOR       = 0.2;    // quanto o atacante recua (Newton 3ª lei)
@@ -215,6 +216,7 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
 
         // SFX especial de atordoamento
         SFX.playImpact( Math.max(0.2, chargePow * 0.6) );
+        Haptic.impactPulse(chargePow);
 
         // Limpar flag para não aplicar múltiplas vezes
         attacker._justCharged = 0;
@@ -224,13 +226,20 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
     }
 
     // ── APLICAR IMPULSO ──────────────────────────────────
-    const maxImpulse = 0.8; // muito mais alto que antes (era 0.35)
-    const impulseX = clamp(impDx * impactForce, -maxImpulse, maxImpulse);
-    const impulseZ = clamp(impDz * impactForce, -maxImpulse, maxImpulse);
+    const maxImpulse = 0.6; // reduzido para melhor UX (era 0.8)
+    let impulseX = clamp(impDx * impactForce, -maxImpulse, maxImpulse);
+    let impulseZ = clamp(impDz * impactForce, -maxImpulse, maxImpulse);
+
+    // Player tem +35% resistência a knockback (aumenta peso efetivo)
+    if (defender.isPlayer) {
+        impulseX *= 0.65;
+        impulseZ *= 0.65;
+    }
 
     // Defensor é empurrado
     defender.vel[0] += impulseX;
-    defender.vel[1] += clamp(impactForce * LIFT_FORCE, 0, 0.25);
+    const liftMul = defender.isPlayer ? 0.7 : 1.0; // Player também resiste a lift
+    defender.vel[1] += clamp(impactForce * LIFT_FORCE * liftMul, 0, 0.25);
     defender.vel[2] += impulseZ;
 
     // Atacante recua (Newton 3ª lei, moderada)
@@ -238,7 +247,9 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
     attacker.vel[2] -= impulseZ * RECOIL_FACTOR;
 
     // ── DANO ─────────────────────────────────────────────
-    const damage = impactForce * DAMAGE_PER_FORCE;
+    let damage = impactForce * DAMAGE_PER_FORCE;
+    // Player recebe 25% menos dano (mais tolerante)
+    if (defender.isPlayer) damage *= 0.75;
     defender.hp = Math.max(0, defender.hp - damage);
 
     // ── FEEDBACK VISUAL ──────────────────────────────────
@@ -319,7 +330,10 @@ export function bodyCollision(a, b) {
             setExpression(target, EXPR_STUNNED, stunDur);
 
             // Aplicar bump reduzido
-            const bump = slamForce * 0.4;
+            let bump = slamForce * 0.4;
+            // Player resiste mais a body slam também
+            if (target.isPlayer) bump *= 0.7;
+            
             if (source === a) {
                 b.vel[0] += nx * bump;
                 b.vel[1] += bump * 0.2;
@@ -335,6 +349,7 @@ export function bodyCollision(a, b) {
             }
 
             SFX.playBodySlam(chargePow);
+            Haptic.heavyPulse();
             // Limpar flag e aplicar cooldown extra
             source._justCharged = 0;
             source.chargeCooldown += 90;
@@ -430,9 +445,10 @@ export function releaseCharge(ent) {
     ent.chargeAmount = 0;
     ent.chargeCooldown = 45; // ~0.75s cooldown
 
-    // Dash SFX
+    // Dash SFX + haptic
     SFX.playDash(power);
     SFX.setChargeLevel(0);
+    Haptic.heavyPulse();
 
     return power;
 }
