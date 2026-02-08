@@ -386,6 +386,36 @@ body {
 /* Touch overlay (created dynamically by Input.js) */
 #touch-overlay {
     touch-action: none;
+    pointer-events: none; /* children will enable pointer-events when needed */
+}
+
+/* Joystick (fixed on left-bottom in touch mode) */
+#joystick-base {
+    width: 120px; height: 120px; border-radius: 50%;
+    border: 2px solid rgba(0,255,255,0.25); background: rgba(0,20,30,0.12);
+    display: none; z-index: 30; pointer-events: none;
+}
+#joystick-knob {
+    width: 44px; height: 44px; border-radius: 50%; background: rgba(0,255,255,0.35);
+    border: 2px solid rgba(0,255,255,0.6); box-shadow:0 0 12px rgba(0,255,255,0.3);
+    transform: translate(-50%, -50%);
+}
+
+/* Punch zones on the right half */
+#punch-zones {
+    position: absolute; right: 0; top: 0; height: 100%; width: 50%; display: none; z-index: 28;
+}
+#punch-zones > div {
+    flex: 1; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 110px;
+    pointer-events: auto; transition: background 0.14s ease, transform 0.12s ease; background: rgba(255,255,255,0.02);
+}
+#punch-zones > div .punch-hint { color: #fff; font-size: 1.6em; text-align: center; opacity: 0.85; }
+#punch-zones > div .punch-label { font-size: 0.65em; letter-spacing: 0.12em; color: rgba(255,255,255,0.75); margin-top:6px; }
+#punch-zones > div.active { background: rgba(255,255,255,0.06); transform: scale(0.98); }
+
+@media (max-width:700px) {
+    #joystick-base { left: 70px; bottom: 100px; }
+    #punch-zones > div { padding-bottom: 90px; }
 }
 
 /* On narrow / portrait screens */

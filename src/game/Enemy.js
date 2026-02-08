@@ -67,7 +67,9 @@ export class EnemyAI {
         // Timer de estado
         this.stateTimer++;
         if (this.stateTimer >= this.stateDuration) {
-            this._transition(dist, e.hp / e.maxHp, e, target, arenaRadius);
+            // Com sistema de damage: quanto mais damage, mais desesperado (retreat)
+            const damageRatio = clamp(e.damage / 150, 0, 1); // 0 = sem dano, 1 = muito dano
+            this._transition(dist, damageRatio, e, target, arenaRadius);
         }
 
         // Dodge cooldown
@@ -169,7 +171,7 @@ export class EnemyAI {
         return closestTarget;
     }
 
-    _transition(dist, hpRatio, enemy, target, arenaRadius) {
+    _transition(dist, damageRatio, enemy, target, arenaRadius) {
         const weights = [];
         const targetEdge = Math.sqrt(target.pos[0] ** 2 + target.pos[2] ** 2);
         const targetNearEdge = targetEdge > arenaRadius * 0.5;
@@ -179,15 +181,15 @@ export class EnemyAI {
             weights.push({ s: AI_CHARGE,   w: 2 }); // carga de longe!
             weights.push({ s: AI_CIRCLE,   w: 1 });
         } else if (dist > 3.5) {
-            weights.push({ s: AI_ATTACK,   w: 3 + hpRatio * 2 });
+            weights.push({ s: AI_ATTACK,   w: 3 + (1 - damageRatio) * 2 }); // menos agressivo se muito damage
             weights.push({ s: AI_CHARGE,   w: targetNearEdge ? 4 : 1 }); // charge se alvo perto da borda!
             weights.push({ s: AI_CIRCLE,   w: 2 });
-            weights.push({ s: AI_RETREAT,  w: 1.5 * (1 - hpRatio) });
+            weights.push({ s: AI_RETREAT,  w: 1.5 * damageRatio }); // mais retreat se muito damage
         } else {
-            weights.push({ s: AI_ATTACK,   w: 4 + hpRatio * 3 });
+            weights.push({ s: AI_ATTACK,   w: 4 + (1 - damageRatio) * 3 });
             weights.push({ s: AI_CHARGE,   w: targetNearEdge ? 3 : 0.5 });
             weights.push({ s: AI_CIRCLE,   w: 1 });
-            weights.push({ s: AI_RETREAT,  w: 2 * (1 - hpRatio) });
+            weights.push({ s: AI_RETREAT,  w: 2 * damageRatio }); // mais retreat se muito damage
         }
 
         const total = weights.reduce((s, w) => s + w.w, 0);
@@ -231,7 +233,7 @@ export class EnemyAI {
         setExpression(e, EXPR_ATTACK, 15);
 
         const localAngle = Math.atan2(nx, nz) - e.rot[1];
-        const cycle = Math.sin(gameTime * 4.0); // mais rápido = combos mais agressivos
+        const cycle = Math.sin(gameTime * 6.0); // mais rápido = socos mais ágeis (4.0 → 6.0)
 
         // Combo: alterna braços
         if (this.comboCount > 3) {
@@ -242,7 +244,8 @@ export class EnemyAI {
             return;
         }
 
-        const punchExt = 2.0 + Math.max(0, Math.abs(cycle)) * 2.5;
+        // Soco mais breve e rápido (como o do player)
+        const punchExt = 1.5 + Math.max(0, Math.abs(cycle)) * 1.5; // 1.5..3.0 (antes: 2.0..4.5)
 
         if (cycle > 0) {
             e.arms.left.targetRot = [clamp(-0.2, -1.2, 1.2), localAngle * 0.7];
@@ -315,9 +318,11 @@ export class EnemyAI {
             const arm = e.arms[side];
             arm.prevExt = arm.currentExt;
             const tR = arm.targetRot || [0, 0];
-            arm.currentRot[0] = lerp(arm.currentRot[0], tR[0], lag);
-            arm.currentRot[1] = lerp(arm.currentRot[1], tR[1], lag);
-            arm.currentExt    = lerp(arm.currentExt, arm.targetExt, lag);
+            // Interpolação mais rápida para socos ágeis (0.12 → 0.25)
+            const fastLag = 0.25;
+            arm.currentRot[0] = lerp(arm.currentRot[0], tR[0], fastLag);
+            arm.currentRot[1] = lerp(arm.currentRot[1], tR[1], fastLag);
+            arm.currentExt    = lerp(arm.currentExt, arm.targetExt, fastLag);
         });
     }
 }

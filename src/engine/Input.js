@@ -30,6 +30,7 @@ let _onMenuClick       = null;
 // ── Touch state interno ──────────────────────────────────────
 let _moveTouch   = null;   // { id, startX, startY }
 let _combatTouch = null;   // { id, startX, startY, startTime, moved, lastX, lastY }
+let _punchTouches = {};    // map id -> { startX, startY, startTime, moved, lastX, lastY, zone }
 const JOYSTICK_DEAD = 12;
 const JOYSTICK_MAX  = 80;
 const TAP_MAX_DIST  = 18;
@@ -41,6 +42,9 @@ let $touchOverlay = null;
 let $joystickBase = null;
 let $joystickKnob = null;
 let $combatZone   = null;
+let $punchZones   = null;
+let $punchLeft    = null;
+let $punchRight   = null;
 
 // ═══════════════════════════════════════════════════════════
 // API pública
@@ -100,10 +104,12 @@ function _createTouchOverlay() {
 
     $joystickBase = document.createElement('div');
     $joystickBase.id = 'joystick-base';
+    // Positioned fixed on the left bottom — always visible in touch mode
     $joystickBase.style.cssText =
-        'position:absolute;width:120px;height:120px;border-radius:50%;' +
+        'position:fixed;left:96px;bottom:140px;width:120px;height:120px;border-radius:50%;' +
         'border:2px solid rgba(0,255,255,0.25);background:rgba(0,20,30,0.18);' +
-        'display:none;transform:translate(-50%,-50%);';
+        'display:none;pointer-events:none;';
+
 
     $joystickKnob = document.createElement('div');
     $joystickKnob.id = 'joystick-knob';
@@ -114,23 +120,51 @@ function _createTouchOverlay() {
         'top:50%;left:50%;transform:translate(-50%,-50%);';
     $joystickBase.appendChild($joystickKnob);
 
-    $combatZone = document.createElement('div');
-    $combatZone.id = 'combat-zone';
-    $combatZone.style.cssText =
-        'position:absolute;right:20px;bottom:140px;width:60px;height:60px;' +
-        'border-radius:50%;border:1px solid rgba(255,100,255,0.2);' +
-        'background:rgba(40,0,40,0.15);display:none;';
-    $combatZone.innerHTML =
-        '<span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);' +
-        'font-size:1.3em;color:rgba(255,100,255,0.4);">&#x1F44A;</span>';
+    // Right-side punch zones container (split right half into two soft zones)
+    const _pz = document.createElement('div');
+    _pz.id = 'punch-zones';
+    _pz.style.cssText = 'position:absolute;right:0;top:0;height:100%;width:50%;display:flex;pointer-events:none;';
+
+    const _pl = document.createElement('div');
+    _pl.id = 'punch-left-zone';
+    _pl.style.cssText = 'flex:1;display:flex;align-items:flex-end;justify-content:center;padding-bottom:110px;pointer-events:auto;opacity:0.9;';
+    _pl.innerHTML = '<div class="punch-hint">✊<div class="punch-label">BRAÇO ESQ</div></div>';
+
+    const _pr = document.createElement('div');
+    _pr.id = 'punch-right-zone';
+    _pr.style.cssText = 'flex:1;display:flex;align-items:flex-end;justify-content:center;padding-bottom:110px;pointer-events:auto;opacity:0.9;';
+    _pr.innerHTML = '<div class="punch-hint">✊<div class="punch-label">BRAÇO DIR</div></div>';
+
+    _pz.appendChild(_pl);
+    _pz.appendChild(_pr);
+
+    // assign to top-level refs
+    $punchZones = _pz;
+    $punchLeft  = _pl;
+    $punchRight = _pr;
 
     $touchOverlay.appendChild($joystickBase);
-    $touchOverlay.appendChild($combatZone);
+    $touchOverlay.appendChild($punchZones);
     document.body.appendChild($touchOverlay);
+
+    // Expose elements for touch handlers
+    $punchZones = $punchZones;
+    $punchLeft  = $punchLeft;
+    $punchRight = $punchRight;
+
+    // Also keep references on our globals
+    // (no-op assignments above ensure top-level vars point to these elements)
+
 }
 
-function _showTouchOverlay() { if ($touchOverlay) $touchOverlay.style.display = 'block'; if ($combatZone) $combatZone.style.display = 'block'; }
-function _hideTouchOverlay() { if ($touchOverlay) $touchOverlay.style.display = 'none'; }
+function _showTouchOverlay() {
+    if ($touchOverlay) $touchOverlay.style.display = 'block';
+    if ($joystickBase) $joystickBase.style.display = 'block';
+    if ($punchZones) $punchZones.style.display = 'flex';
+}
+function _hideTouchOverlay() {
+    if ($touchOverlay) $touchOverlay.style.display = 'none';
+}
 
 // ═══════════════════════════════════════════════════════════
 // Mode switching
@@ -209,22 +243,29 @@ function _onTouchStart(e) {
         const t = e.changedTouches[i];
         if (t.clientX < halfW) {
             if (!_moveTouch) {
-                _moveTouch = { id: t.identifier, startX: t.clientX, startY: t.clientY };
-                $joystickBase.style.display = 'block';
-                $joystickBase.style.left = t.clientX + 'px';
-                $joystickBase.style.top  = t.clientY + 'px';
+                // Left side: movement joystick (joystick is fixed in position)
+                // Use joystick visual center as start point for consistent control
+                let cx = t.clientX, cy = t.clientY;
+                if ($joystickBase) {
+                    const r = $joystickBase.getBoundingClientRect();
+                    cx = r.left + r.width * 0.5;
+                    cy = r.top + r.height * 0.5;
+                }
+                _moveTouch = { id: t.identifier, startX: cx, startY: cy };
                 _updateJoystickKnob(0, 0);
             }
         } else {
-            if (!_combatTouch) {
-                _combatTouch = {
-                    id: t.identifier,
-                    startX: t.clientX, startY: t.clientY,
-                    startTime: performance.now(),
-                    moved: false,
-                    lastX: t.clientX, lastY: t.clientY,
-                };
-            }
+            // Right side: punch zones (tap to punch left/right); allow drag to convert to combat trackpad
+            const zone = t.clientX < window.innerWidth * 0.75 ? 'left' : 'right';
+            _punchTouches[t.identifier] = {
+                id: t.identifier,
+                startX: t.clientX, startY: t.clientY,
+                startTime: performance.now(), moved: false,
+                lastX: t.clientX, lastY: t.clientY, zone,
+            };
+            // visual feedback
+            if (zone === 'left' && $punchLeft) $punchLeft.classList.add('active');
+            if (zone === 'right' && $punchRight) $punchRight.classList.add('active');
         }
     }
 }
@@ -246,7 +287,7 @@ function _onTouchMove(e) {
                 const clamped = Math.min(dist, JOYSTICK_MAX);
                 const norm = (clamped - JOYSTICK_DEAD) / (JOYSTICK_MAX - JOYSTICK_DEAD);
                 const ang = Math.atan2(dy, dx);
-                state.moveX =  Math.cos(ang) * norm;
+                state.moveX = -Math.cos(ang) * norm; // inverte X p/ coincidir com câmera
                 state.moveZ = -Math.sin(ang) * norm; // up = forward
             } else {
                 state.moveX = 0; state.moveZ = 0;
@@ -254,6 +295,30 @@ function _onTouchMove(e) {
             const vDist = Math.min(dist, JOYSTICK_MAX);
             const vAng  = Math.atan2(dy, dx);
             _updateJoystickKnob(Math.cos(vAng) * vDist, Math.sin(vAng) * vDist);
+        }
+
+        // Punch touches (taps that can convert to combat trackpad when dragged)
+        const p = _punchTouches[t.identifier];
+        if (p) {
+            const dx = t.clientX - p.lastX;
+            const dy = t.clientY - p.lastY;
+            const totalDx = t.clientX - p.startX;
+            const totalDy = t.clientY - p.startY;
+            if (Math.sqrt(totalDx * totalDx + totalDy * totalDy) > TAP_MAX_DIST) {
+                p.moved = true;
+                // convert to combat trackpad for aiming
+                _combatTouch = {
+                    id: t.identifier,
+                    startX: p.startX, startY: p.startY,
+                    startTime: p.startTime,
+                    moved: true,
+                    lastX: t.clientX, lastY: t.clientY,
+                };
+                // clear punch visual
+                if (p.zone === 'left' && $punchLeft) $punchLeft.classList.remove('active');
+                if (p.zone === 'right' && $punchRight) $punchRight.classList.remove('active');
+                delete _punchTouches[t.identifier];
+            }
         }
 
         // Combat trackpad
@@ -288,7 +353,22 @@ function _onTouchEnd(e) {
         if (_moveTouch && t.identifier === _moveTouch.id) {
             _moveTouch = null;
             state.moveX = 0; state.moveZ = 0;
-            $joystickBase.style.display = 'none';
+            // joystick stays visible for touch mode (per user request)
+            // $joystickBase.style.display = 'none';
+        }
+
+        // Punch touches (short taps)
+        const p = _punchTouches[t.identifier];
+        if (p) {
+            const elapsed = performance.now() - p.startTime;
+            // remove visual
+            if (p.zone === 'left' && $punchLeft) $punchLeft.classList.remove('active');
+            if (p.zone === 'right' && $punchRight) $punchRight.classList.remove('active');
+
+            if (!p.moved && elapsed < TAP_MAX_TIME) {
+                _firePunch(p.zone === 'left' ? 'left' : 'right');
+            }
+            delete _punchTouches[t.identifier];
         }
 
         if (_combatTouch && t.identifier === _combatTouch.id) {

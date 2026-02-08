@@ -24,7 +24,7 @@ import { Camera }                                        from './engine/Camera.j
 import { lerp, clamp }                                   from './engine/MathUtils.js';
 
 // ── Game ──────────────────────────────────────────────────────
-import { makePlayerEntity, makeEnemyEntity, MAX_HP,
+import { makePlayerEntity, makeEnemyEntity, START_DAMAGE,
          setExpression, tickExpression,
          EXPR_NORMAL, EXPR_ATTACK, EXPR_HURT,
          EXPR_STUNNED, EXPR_CHARGING }                   from './game/Entity.js';
@@ -334,7 +334,7 @@ function _updateFight(dt) {
         const hitPL = checkArmHit(enemy, player, 'left',  -1, shakeCb, ARENA_RADIUS);
         const hitPR = checkArmHit(enemy, player, 'right',  1, shakeCb, ARENA_RADIUS);
 
-        // Expressões dos hits
+        // Expressões dos hits do PLAYER
         if (hitEL || hitER) {
             const force = Math.max(hitEL || 0, hitER || 0);
             if (force > 0.3) {
@@ -346,6 +346,12 @@ function _updateFight(dt) {
             SFX.playImpact(force);
             Haptic.impactPulse(force);
             maxHitForce = Math.max(maxHitForce, force);
+            
+            // HIT FREEZE EXTRA para socos fortes do player (UX juice!)
+            if (force > 0.4) {
+                slowMo = Math.min(slowMo, 0.3); // freeze mais forte
+                camera.addShake(force * 2.0);   // shake extra
+            }
         }
         if (hitPL || hitPR) {
             const force = Math.max(hitPL || 0, hitPR || 0);
@@ -380,7 +386,7 @@ function _updateFight(dt) {
         }
     });
 
-    // 5. Colisões entre inimigos
+    // 5. Colisões entre inimigos (sem empurrão de body collision)
     for (let i = 0; i < enemies.length; i++) {
         for (let j = i + 1; j < enemies.length; j++) {
             // Braços de um inimigo vs corpo de outro
@@ -413,8 +419,22 @@ function _updateFight(dt) {
                 maxHitForce = Math.max(maxHitForce, force);
             }
 
-            // Body collision entre inimigos
-            bodyCollision(enemies[i], enemies[j]);
+            // Body collision entre inimigos - APENAS SEPARAÇÃO, sem empurrão
+            const dx = enemies[j].pos[0] - enemies[i].pos[0];
+            const dz = enemies[j].pos[2] - enemies[i].pos[2];
+            const dist = Math.sqrt(dx * dx + dz * dz) || 0.01;
+            const minDist = enemies[i].size + enemies[j].size;
+
+            if (dist < minDist) {
+                const overlap = (minDist - dist) * 0.5;
+                const nx = dx / dist;
+                const nz = dz / dist;
+                // Apenas separação física - sem knockback
+                enemies[i].pos[0] -= nx * overlap;
+                enemies[i].pos[2] -= nz * overlap;
+                enemies[j].pos[0] += nx * overlap;
+                enemies[j].pos[2] += nz * overlap;
+            }
         }
     }
 
@@ -435,16 +455,15 @@ function _updateFight(dt) {
     }
     _lastEdgeWarn = edgeWarning;
 
-    // 7. Verificar ring-outs e derrotas
+    // 7. Verificar ring-outs (única forma de derrota - estilo Smash Bros)
     const playerOut = checkArenaEdge(player);
     
-    // Remover inimigos mortos ou fora da arena
+    // Remover inimigos que caíram da arena
     const aliveEnemies = [];
     const aliveAIs = [];
     enemies.forEach((enemy, idx) => {
         const enemyOut = checkArenaEdge(enemy);
-        const dead = enemy.hp <= 0 || enemyOut;
-        if (!dead) {
+        if (!enemyOut) {
             aliveEnemies.push(enemy);
             aliveAIs.push(enemyAIs[idx]);
         }
@@ -460,7 +479,7 @@ function _updateFight(dt) {
         showStateScreen('VITÓRIA!', `Round ${round} completado — ${numEnemies} adversários derrotados!`,
             '[ TOQUE OU CLIQUE PARA CONTINUAR ]', '#0f0');
         SFX.playWin();
-    } else if (playerOut || player.hp <= 0) {
+    } else if (playerOut) {
         phase = 'lose';
         $hud.style.display = 'none';
         $stateTitle.style.fontSize = '';
@@ -469,9 +488,9 @@ function _updateFight(dt) {
         SFX.playLose();
     }
 
-    // 8. Cor reage ao HP
-    _updateColorByHP(player);
-    enemies.forEach(enemy => _updateColorByHP(enemy));
+    // 8. Cor reage ao dano acumulado
+    _updateColorByDamage(player);
+    enemies.forEach(enemy => _updateColorByDamage(enemy));
 
     // 9. Camera follow - foca no inimigo mais próximo
     if (enemies.length > 0) {
@@ -768,34 +787,55 @@ function _createDynamicHPBars() {
 
 function updateHUD() {
     if (player) {
-        const hpP = clamp(player.hp / player.maxHp, 0, 1);
+        // Sistema de dano %, estilo Smash Bros
+        const damagePercent = Math.round(player.damage);
         const $hpPlayerBar = document.getElementById('hp-player');
         if ($hpPlayerBar) {
-            $hpPlayerBar.style.width = `${hpP * 100}%`;
-            // Cor da barra muda conforme HP
-            if (hpP > 0.5) {
+            // Mostrar porcentagem de dano
+            $hpPlayerBar.textContent = `${damagePercent}%`;
+            $hpPlayerBar.style.width = '100%'; // sempre 100%, o texto muda
+            
+            // Cor muda conforme dano acumulado
+            if (damagePercent < 50) {
                 $hpPlayerBar.style.background = `linear-gradient(90deg, #0ff, #0f0)`;
-            } else if (hpP > 0.25) {
+            } else if (damagePercent < 100) {
                 $hpPlayerBar.style.background = `linear-gradient(90deg, #ff0, #f80)`;
             } else {
                 $hpPlayerBar.style.background = `linear-gradient(90deg, #f22, #f00)`;
             }
+            
+            // Centralizar texto
+            $hpPlayerBar.style.display = 'flex';
+            $hpPlayerBar.style.justifyContent = 'center';
+            $hpPlayerBar.style.alignItems = 'center';
+            $hpPlayerBar.style.fontSize = '20px';
+            $hpPlayerBar.style.fontWeight = 'bold';
+            $hpPlayerBar.style.textShadow = '0 0 4px #000';
         }
     }
     
-    // Atualizar barras de cada inimigo
+    // Atualizar porcentagens de cada inimigo
     enemies.forEach((enemy, idx) => {
-        const hpE = clamp(enemy.hp / enemy.maxHp, 0, 1);
+        const damagePercent = Math.round(enemy.damage);
         const $hpEnemyBar = document.getElementById(`hp-enemy-${idx}`);
         if ($hpEnemyBar) {
-            $hpEnemyBar.style.width = `${hpE * 100}%`;
-            if (hpE > 0.5) {
+            $hpEnemyBar.textContent = `${damagePercent}%`;
+            $hpEnemyBar.style.width = '100%';
+            
+            if (damagePercent < 50) {
                 $hpEnemyBar.style.background = `linear-gradient(90deg, #f0f, #f0a)`;
-            } else if (hpE > 0.25) {
+            } else if (damagePercent < 100) {
                 $hpEnemyBar.style.background = `linear-gradient(90deg, #ff0, #f80)`;
             } else {
                 $hpEnemyBar.style.background = `linear-gradient(90deg, #f22, #f00)`;
             }
+            
+            $hpEnemyBar.style.display = 'flex';
+            $hpEnemyBar.style.justifyContent = 'center';
+            $hpEnemyBar.style.alignItems = 'center';
+            $hpEnemyBar.style.fontSize = '20px';
+            $hpEnemyBar.style.fontWeight = 'bold';
+            $hpEnemyBar.style.textShadow = '0 0 4px #000';
         }
     });
 
@@ -820,11 +860,13 @@ function updateHUD() {
 // Helpers
 // ═════════════════════════════════════════════════════════════
 
-function _updateColorByHP(ent) {
-    const ratio = ent.hp / ent.maxHp;
-    ent.color[0] = lerp(1.0, ent.baseColor[0], ratio);
-    ent.color[1] = lerp(0.1, ent.baseColor[1], ratio);
-    ent.color[2] = lerp(0.1, ent.baseColor[2], ratio);
+function _updateColorByDamage(ent) {
+    // Quanto mais damage, mais vermelho fica (Smash Bros style)
+    // 0% = cor normal, 100% = avermelhado, 200%+ = muito vermelho
+    const damageRatio = clamp(ent.damage / 150, 0, 1);
+    ent.color[0] = lerp(ent.baseColor[0], 1.0, damageRatio);
+    ent.color[1] = lerp(ent.baseColor[1], 0.1, damageRatio);
+    ent.color[2] = lerp(ent.baseColor[2], 0.1, damageRatio);
 }
 
 function resizeCanvas() {

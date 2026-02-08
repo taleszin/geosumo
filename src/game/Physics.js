@@ -27,16 +27,16 @@ const FLASH_DECAY     = 0.86;
 const HIT_COOLDOWN    = 8;           // frames entre hits (mais rápido = mais agressivo)
 
 // ── Constantes de impacto SUMO ───────────────────────────────
-const BASE_ARM_IMPACT    = 0.11;     // força base de um soco (reduzido para UX melhor)
-const MOMENTUM_MULT      = 2.5;     // quanto a velocidade do atacante multiplica
-const ARM_SPEED_MULT     = 4.0;     // quanto a velocidade do braço contribui
-const EDGE_KNOCKBACK_MULT = 1.5;    // quanto a borda amplifica knockback (reduzido: 2.2 → 1.5)
-const CHARGE_IMPACT_MULT  = 2.5;    // multiplicador de dano/impulso quando charge (reduzido: 3.5 → 2.5)
-const BODY_SLAM_FORCE     = 0.25;   // força da colisão corpo-a-corpo com charge
+const BASE_ARM_IMPACT    = 0.06;     // força base de um soco (reduzido: 0.11 → 0.06)
+const MOMENTUM_MULT      = 1.8;     // quanto a velocidade do atacante multiplica (reduzido: 2.5 → 1.8)
+const ARM_SPEED_MULT     = 3.0;     // quanto a velocidade do braço contribui (reduzido: 4.0 → 3.0)
+const EDGE_KNOCKBACK_MULT = 1.3;    // quanto a borda amplifica knockback (reduzido: 1.5 → 1.3)
+const CHARGE_IMPACT_MULT  = 2.0;    // multiplicador de dano/impulso quando charge (reduzido: 2.5 → 2.0)
+const BODY_SLAM_FORCE     = 0.15;   // força da colisão corpo-a-corpo com charge (reduzido: 0.25 → 0.15)
 const BODY_SLAM_DAMAGE    = 8;      // dano do body slam
 const RECOIL_FACTOR       = 0.2;    // quanto o atacante recua (Newton 3ª lei)
 const LIFT_FORCE          = 0.12;   // quanto o defensor é levantado
-const DAMAGE_PER_FORCE    = 5.0;    // conversão força → dano HP
+const DAMAGE_PER_FORCE    = 2.5;    // conversão força → dano % (Smash Bros style)
 
 // ── Update de entidade (gravidade, integração, chão) ─────────
 
@@ -208,9 +208,9 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
         attacker.vel[0] -= reducedImpulseX * RECOIL_FACTOR;
         attacker.vel[2] -= reducedImpulseZ * RECOIL_FACTOR;
 
-        // Pequeno dano e feedback
-        const damage = impactForce * DAMAGE_PER_FORCE * 0.25;
-        defender.hp = Math.max(0, defender.hp - damage);
+        // Pequeno dano e feedback (Smash Bros style: acumula %)
+        const damageAdd = impactForce * DAMAGE_PER_FORCE * 0.25;
+        defender.damage += damageAdd;
         defender.hitFlash = clamp(impactForce * 0.6, 0.2, 1.0);
         if (shakeCallback) shakeCallback(impactForce * 1.2);
 
@@ -226,9 +226,15 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
     }
 
     // ── APLICAR IMPULSO ──────────────────────────────────
-    const maxImpulse = 0.6; // reduzido para melhor UX (era 0.8)
+    const maxImpulse = 0.35; // reduzido para melhor UX (0.8 → 0.6 → 0.35)
     let impulseX = clamp(impDx * impactForce, -maxImpulse, maxImpulse);
     let impulseZ = clamp(impDz * impactForce, -maxImpulse, maxImpulse);
+
+    // ── SISTEMA DE DANO SMASH BROS ──────────────────────
+    // Quanto mais dano acumulado, maior o knockback!
+    const damageMultiplier = 1.0 + (defender.damage / 100) * 0.6; // +60% knockback a cada 100%
+    impulseX *= damageMultiplier;
+    impulseZ *= damageMultiplier;
 
     // Player tem +35% resistência a knockback (aumenta peso efetivo)
     if (defender.isPlayer) {
@@ -236,10 +242,14 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
         impulseZ *= 0.65;
     }
 
+    // Clamp após multiplicadores
+    impulseX = clamp(impulseX, -maxImpulse * 1.5, maxImpulse * 1.5);
+    impulseZ = clamp(impulseZ, -maxImpulse * 1.5, maxImpulse * 1.5);
+
     // Defensor é empurrado
     defender.vel[0] += impulseX;
     const liftMul = defender.isPlayer ? 0.7 : 1.0; // Player também resiste a lift
-    defender.vel[1] += clamp(impactForce * LIFT_FORCE * liftMul, 0, 0.25);
+    defender.vel[1] += clamp(impactForce * LIFT_FORCE * liftMul * damageMultiplier, 0, 0.35);
     defender.vel[2] += impulseZ;
 
     // Atacante recua (Newton 3ª lei, moderada)
@@ -247,10 +257,10 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
     attacker.vel[2] -= impulseZ * RECOIL_FACTOR;
 
     // ── DANO ─────────────────────────────────────────────
-    let damage = impactForce * DAMAGE_PER_FORCE;
+    let damageAdd = impactForce * DAMAGE_PER_FORCE;
     // Player recebe 25% menos dano (mais tolerante)
-    if (defender.isPlayer) damage *= 0.75;
-    defender.hp = Math.max(0, defender.hp - damage);
+    if (defender.isPlayer) damageAdd *= 0.75;
+    defender.damage += damageAdd; // Acumula % de dano (Smash Bros style)
 
     // ── FEEDBACK VISUAL ──────────────────────────────────
     defender.hitFlash = clamp(impactForce * 1.2, 0.3, 1.0);
@@ -338,13 +348,13 @@ export function bodyCollision(a, b) {
                 b.vel[0] += nx * bump;
                 b.vel[1] += bump * 0.2;
                 b.vel[2] += nz * bump;
-                b.hp = Math.max(0, b.hp - BODY_SLAM_DAMAGE * (bump / BODY_SLAM_FORCE));
+                b.damage += BODY_SLAM_DAMAGE * (bump / BODY_SLAM_FORCE);
                 b.hitFlash = 0.5;
             } else {
                 a.vel[0] -= nx * bump;
                 a.vel[1] += bump * 0.2;
                 a.vel[2] -= nz * bump;
-                a.hp = Math.max(0, a.hp - BODY_SLAM_DAMAGE * (bump / BODY_SLAM_FORCE));
+                a.damage += BODY_SLAM_DAMAGE * (bump / BODY_SLAM_FORCE);
                 a.hitFlash = 0.5;
             }
 
@@ -365,7 +375,7 @@ export function bodyCollision(a, b) {
             b.vel[0] += nx * slamForce;
             b.vel[1] += slamForce * 0.3;
             b.vel[2] += nz * slamForce;
-            b.hp -= BODY_SLAM_DAMAGE * (slamForce / BODY_SLAM_FORCE);
+            b.damage += BODY_SLAM_DAMAGE * (slamForce / BODY_SLAM_FORCE);
             b.hitFlash = 0.6;
             b.rot[2] += nx * slamForce * 0.3;
             b.rot[0] += nz * slamForce * 0.3;
@@ -373,7 +383,7 @@ export function bodyCollision(a, b) {
             a.vel[0] -= nx * slamForce;
             a.vel[1] += slamForce * 0.3;
             a.vel[2] -= nz * slamForce;
-            a.hp -= BODY_SLAM_DAMAGE * (slamForce / BODY_SLAM_FORCE);
+            a.damage += BODY_SLAM_DAMAGE * (slamForce / BODY_SLAM_FORCE);
             a.hitFlash = 0.6;
             a.rot[2] -= nx * slamForce * 0.3;
             a.rot[0] += nz * slamForce * 0.3;

@@ -9,7 +9,8 @@
 import { GROUND_Y } from './Physics.js';
 import { getColor, getShape, defaultCustomization, randomCustomization } from '../data/Customization.js';
 
-export const MAX_HP = 100;
+// Sistema de dano estilo Smash Bros: começa em 0%, acumula até 999%+
+export const START_DAMAGE = 0;
 
 // ── Expression states ─────────────────────────────────────────
 export const EXPR_NORMAL   = 0;
@@ -55,8 +56,7 @@ function _buildEntity(pos, size, custom) {
         rot:       [0, 0, 0],           // [pitch, yaw, roll]
         size,
         mass:      size * size * size,
-        hp:        MAX_HP,
-        maxHp:     MAX_HP,
+        damage:    START_DAMAGE,        // % de dano acumulado (estilo Smash Bros)
         hitFlash:  0,
         color:     bodyColor,
         baseColor: baseColor,
@@ -95,6 +95,9 @@ function _makeArm(palette, side) {
         targetRot:  [0, 0],
         prevExt:    0.8,
         color:      c,
+        // ── Propriedades para física de soco responsivo (player) ──
+        _punching:  false,  // estado de soco ativo
+        _punchVel:  0,      // velocidade explosiva do soco
     };
 }
 

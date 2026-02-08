@@ -78,50 +78,113 @@ export function updatePlayerMovement(player, input, camYaw) {
 }
 
 /**
- * Atualiza braços do jogador baseado em mouse + clique.
- * Agora com extensão mais rápida (socos mais snappy).
+ * Atualiza braços do jogador com sistema ULTRA-RESPONSIVO.
+ * 
+ * Melhorias UX:
+ *   - Extensão IMEDIATA ao clicar (sem lag perceptível)
+ *   - Overshoot/bounce para peso e impacto visual
+ *   - Mira precisa e suave
+ *   - Retração com momentum
+ *   - Braços independentes para combos rápidos
+ *   - Soco duplo sincronizado quando ambos os botões são pressionados
  */
 export function updatePlayerArms(player, input) {
-    const lag = 0.18;         // era 0.14 — braços mais rápidos
-    const punchLag = 0.22;    // retração mais lenta (peso do soco)
+    const arms = player.arms;
 
-    const targetRotX = input.aimY * 1.5;
-    const targetRotY = input.aimX * 1.8;
-    let   targetExt  = 1.5 + (input.aimY * -1.2);
-    targetExt = clamp(targetExt, 0.6, 4.5); // extensão máxima maior
+    // ── MIRA (rotação) — suave mas precisa ────────────
+    const targetRotX = input.aimY * 1.8;  // mais range vertical
+    const targetRotY = input.aimX * 2.0;  // mais range horizontal
+    
+    // Base extension depende da altura da mira (apontar para baixo = mais alcance)
+    let baseExt = 1.2 + (input.aimY * -1.5);
+    baseExt = clamp(baseExt, 0.6, 5.0);
 
-    // Esquerdo
+    // Detectar soco duplo (ambos os botões pressionados)
+    const doublePunch = input.lClick && input.rClick;
+
+    // ── BRAÇO ESQUERDO ──────────────────────────────────
+    const armL = arms.left;
+    
     if (input.lClick) {
-        player.arms.left.targetRot = [targetRotX, targetRotY];
-        player.arms.left.targetExt = targetExt;
+        // SOCO! Extensão imediata + overshoot
+        armL.targetRot = [targetRotX, doublePunch ? targetRotY * 0.7 : targetRotY];
+        armL.targetExt = baseExt + (doublePunch ? 0.8 : 0.5); // extra reach no double punch
+        
+        // Snap instantâneo na primeira extensão
+        if (armL.currentExt < 2.0) {
+            armL.currentExt = armL.targetExt * 0.7; // snap to 70% imediatamente
+        }
+        
+        // Overshoot para dar peso
+        if (!armL._punching) {
+            armL._punchVel = doublePunch ? 1.0 : 0.8; // mais rápido no double punch
+            armL._punching = true;
+        }
     } else {
-        player.arms.left.targetRot = [0, 0];
-        player.arms.left.targetExt = 0.8;
+        // Relaxado - retrai suavemente
+        armL.targetRot = [0, 0];
+        armL.targetExt = 0.8;
+        armL._punching = false;
+        armL._punchVel = 0;
     }
 
-    // Direito
+    // ── BRAÇO DIREITO ───────────────────────────────────
+    const armR = arms.right;
+    
     if (input.rClick) {
-        player.arms.right.targetRot = [targetRotX, -targetRotY];
-        player.arms.right.targetExt = targetExt;
+        armR.targetRot = [targetRotX, doublePunch ? -targetRotY * 0.7 : -targetRotY]; // espelhado
+        armR.targetExt = baseExt + (doublePunch ? 0.8 : 0.5);
+        
+        if (armR.currentExt < 2.0) {
+            armR.currentExt = armR.targetExt * 0.7;
+        }
+        
+        if (!armR._punching) {
+            armR._punchVel = doublePunch ? 1.0 : 0.8;
+            armR._punching = true;
+        }
     } else {
-        player.arms.right.targetRot = [0, 0];
-        player.arms.right.targetExt = 0.8;
+        armR.targetRot = [0, 0];
+        armR.targetExt = 0.8;
+        armR._punching = false;
+        armR._punchVel = 0;
     }
 
-    // Interpolação (extensão usa lag diferente conforme direção)
-    _lerpArms(player, lag, punchLag);
+    // ── ANIMAÇÃO COM FÍSICA ─────────────────────────────
+    _animateArmWithPhysics(armL, 0.25, 0.18);
+    _animateArmWithPhysics(armR, 0.25, 0.18);
 }
 
-function _lerpArms(ent, extendLag, retractLag) {
-    ['left', 'right'].forEach(side => {
-        const arm = ent.arms[side];
-        arm.prevExt = arm.currentExt;
-        const tR = arm.targetRot || [0, 0];
-        arm.currentRot[0] = lerp(arm.currentRot[0], tR[0], extendLag);
-        arm.currentRot[1] = lerp(arm.currentRot[1], tR[1], extendLag);
+/**
+ * Anima um braço com física de mola + overshoot.
+ * Muito mais responsivo que simples lerp.
+ */
+function _animateArmWithPhysics(arm, rotSpeed, extSpeed) {
+    // Rotação — suave mas precisa
+    const tR = arm.targetRot || [0, 0];
+    arm.currentRot[0] = lerp(arm.currentRot[0], tR[0], rotSpeed);
+    arm.currentRot[1] = lerp(arm.currentRot[1], tR[1], rotSpeed);
 
-        // Extensão mais rápida que retração → soco tem "snap"
-        const extLag = arm.targetExt > arm.currentExt ? extendLag : retractLag;
-        arm.currentExt = lerp(arm.currentExt, arm.targetExt, extLag);
-    });
+    // Extensão — com momentum e overshoot
+    arm.prevExt = arm.currentExt;
+    
+    if (arm._punching && arm._punchVel > 0) {
+        // Modo explosivo: usa velocidade em vez de lerp
+        arm.currentExt += arm._punchVel;
+        arm._punchVel *= 0.75; // decay rápido
+        
+        // Overshoot: passa um pouco do target
+        if (arm.currentExt >= arm.targetExt) {
+            arm.currentExt = arm.targetExt + 0.3; // overshoot
+            arm._punchVel = 0;
+        }
+    } else {
+        // Modo normal: spring para o target
+        const diff = arm.targetExt - arm.currentExt;
+        const speed = Math.abs(diff) > 2.0 ? extSpeed * 1.5 : extSpeed; // mais rápido se longe
+        arm.currentExt = lerp(arm.currentExt, arm.targetExt, speed);
+    }
+    
+    // Clamp para evitar valores loucos
+    arm.currentExt = clamp(arm.currentExt, 0.3, 6.0);
 }
