@@ -71,86 +71,119 @@
             <div id="cust-subtitle">PERSONALIZE FORMA, COR, OLHOS E BOCA</div>
         </div>
 
-        <div id="cust-panel">
-            <!-- FORMA DO CORPO -->
-            <div class="cust-row">
-                <div class="cust-label">FORMA</div>
-                <div class="cust-selector">
-                    <button class="cust-arrow" data-cat="shape" data-dir="-1">◄</button>
-                    <div class="cust-value" id="cust-shape-display">■ Cubo</div>
-                    <button class="cust-arrow" data-cat="shape" data-dir="1">►</button>
+        <!-- Dica sutil de showcase -->
+        <div id="cust-showcase-hint">◁ SEU LUTADOR EM DESTAQUE ▷</div>
+
+        <!-- GRID DE CUSTOMIZAÇÃO (estilo AAA games) -->
+        <div id="cust-grid">
+            <!-- COLUNA ESQUERDA -->
+            <div class="cust-column cust-left">
+                <!-- FORMA -->
+                <div class="cust-card" data-category="appearance">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">■</div>
+                        <span class="cust-card-title">FORMA</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="shape" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-shape-display">Cubo</div>
+                        <button class="cust-arrow" data-cat="shape" data-dir="1">►</button>
+                    </div>
+                </div>
+
+                <!-- OLHOS -->
+                <div class="cust-card" data-category="appearance">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">◉</div>
+                        <span class="cust-card-title">OLHOS</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="eyes" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-eyes-display">Redondos</div>
+                        <button class="cust-arrow" data-cat="eyes" data-dir="1">►</button>
+                    </div>
+                </div>
+
+                <!-- INIMIGOS -->
+                <div class="cust-card" data-category="combat">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">⚔</div>
+                        <span class="cust-card-title">INIMIGOS</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="enemies" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-enemy-display">1</div>
+                        <button class="cust-arrow" data-cat="enemies" data-dir="1">►</button>
+                    </div>
                 </div>
             </div>
 
-            <!-- COR NEON -->
-            <div class="cust-row">
-                <div class="cust-label">COR</div>
-                <div class="cust-selector">
-                    <button class="cust-arrow" data-cat="color" data-dir="-1">◄</button>
-                    <div class="cust-value" id="cust-color-display">● Ciano</div>
-                    <button class="cust-arrow" data-cat="color" data-dir="1">►</button>
+            <!-- COLUNA DIREITA -->
+            <div class="cust-column cust-right">
+                <!-- COR -->
+                <div class="cust-card" data-category="appearance">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">●</div>
+                        <span class="cust-card-title">COR</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="color" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-color-display">Ciano</div>
+                        <button class="cust-arrow" data-cat="color" data-dir="1">►</button>
+                    </div>
+                </div>
+
+                <!-- BOCA -->
+                <div class="cust-card" data-category="appearance">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">‿</div>
+                        <span class="cust-card-title">BOCA</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="mouth" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-mouth-display">Simples</div>
+                        <button class="cust-arrow" data-cat="mouth" data-dir="1">►</button>
+                    </div>
+                </div>
+
+                <!-- VIDAS -->
+                <div class="cust-card" data-category="combat">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">♥</div>
+                        <span class="cust-card-title">VIDAS</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="lives" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-lives-display">3</div>
+                        <button class="cust-arrow" data-cat="lives" data-dir="1">►</button>
+                    </div>
                 </div>
             </div>
+        </div>
 
-            <!-- OLHOS -->
-            <div class="cust-row">
-                <div class="cust-label">OLHOS</div>
-                <div class="cust-selector">
-                    <button class="cust-arrow" data-cat="eyes" data-dir="-1">◄</button>
-                    <div class="cust-value" id="cust-eyes-display">◉ Redondos</div>
-                    <button class="cust-arrow" data-cat="eyes" data-dir="1">►</button>
+        <!-- DIFICULDADE (centralizada na parte inferior) -->
+        <div id="cust-difficulty-panel">
+            <div class="cust-card cust-card-wide" data-category="combat">
+                <div class="cust-card-header">
+                    <div class="cust-icon">⚡</div>
+                    <span class="cust-card-title">DIFICULDADE</span>
                 </div>
-            </div>
-
-            <!-- BOCA -->
-            <div class="cust-row">
-                <div class="cust-label">BOCA</div>
-                <div class="cust-selector">
-                    <button class="cust-arrow" data-cat="mouth" data-dir="-1">◄</button>
-                    <div class="cust-value" id="cust-mouth-display">‿ Simples</div>
-                    <button class="cust-arrow" data-cat="mouth" data-dir="1">►</button>
-                </div>
-            </div>
-
-            <!-- NÚMERO DE ADVERSÁRIOS -->
-            <div class="cust-row">
-                <div class="cust-label">INIMIGOS</div>
-                <div class="cust-selector">
-                    <button class="cust-arrow" data-cat="enemies" data-dir="-1">◄</button>
-                    <div class="cust-value" id="cust-enemy-display">1 adversário</div>
-                    <button class="cust-arrow" data-cat="enemies" data-dir="1">►</button>
-                </div>
-            </div>
-
-            <!-- NÚMERO DE VIDAS -->
-            <div class="cust-row">
-                <div class="cust-label">VIDAS</div>
-                <div class="cust-selector">
-                    <button class="cust-arrow" data-cat="lives" data-dir="-1">◄</button>
-                    <div class="cust-value" id="cust-lives-display">3 vidas</div>
-                    <button class="cust-arrow" data-cat="lives" data-dir="1">►</button>
-                </div>
-            </div>
-
-            <!-- DIFICULDADE -->
-            <div class="cust-row">
-                <div class="cust-label">DIFICULDADE</div>
                 <div class="cust-selector">
                     <button class="cust-arrow" data-cat="difficulty" data-dir="-1">◄</button>
-                    <div class="cust-value" id="cust-difficulty-display">⚔ Médio</div>
+                    <div class="cust-value" id="cust-difficulty-display">Médio</div>
                     <button class="cust-arrow" data-cat="difficulty" data-dir="1">►</button>
                 </div>
             </div>
-
-            <!-- DESCRIÇÃO -->
-            <div id="cust-desc"></div>
         </div>
 
-        <!-- BOTÃO FIGHT -->
-        <button id="cust-fight-btn">⚔ LUTAR!</button>
+        <!-- DESCRIÇÃO (tooltip flutuante) -->
+        <div id="cust-desc"></div>
 
-        <!-- RANDOMIZE -->
-        <button id="cust-random-btn">🎲 ALEATÓRIO</button>
+        <!-- BOTÕES DE AÇÃO -->
+        <div id="cust-actions">
+            <button id="cust-random-btn">🎲 ALEATÓRIO</button>
+            <button id="cust-fight-btn">⚔ LUTAR!</button>
+        </div>
     </div>
 
     <script type="module" src="/src/main.js"></script>

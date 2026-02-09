@@ -16,7 +16,8 @@ import './style.css';
 
 // ── Engine ────────────────────────────────────────────────────
 import { initRenderer, initArenaPlane, resizeViewport,
-         beginFrame, useObjShader, endObjShader, getMV, getProj } from './engine/Renderer.js';
+         beginFrame, useObjShader, endObjShader, getMV, getProj,
+         mvPush, mvPop, drawCube } from './engine/Renderer.js';
 import { initInput, getInput, isTouchActive }            from './engine/Input.js';
 import { mat4, vec4 }                                    from 'gl-matrix';
 import * as SFX                                           from './audio/SFX.js';
@@ -749,17 +750,83 @@ function _updateFight(dt) {
 // Customization Phase
 // ═════════════════════════════════════════════════════════════
 
+/**
+ * Desenha o pedestal neon abaixo do preview.
+ * Efeito de showcase para destacar o lutador.
+ */
+function _drawPedestal(gameTime) {
+    const mv = getMV();
+    const pulse = 1.0 + Math.sin(gameTime * 2.0) * 0.05;
+    const glow = 1.5 + Math.sin(gameTime * 3.0) * 0.3;
+    
+    // Base do pedestal - disco largo
+    mvPush();
+    mat4.translate(mv, mv, [0, GROUND_Y + 0.15, 0]);
+    mat4.rotate(mv, mv, gameTime * 0.5, [0, 1, 0]); // rotação lenta
+    const baseColor = [0.0, 0.8, 1.0, 0.7];
+    drawCube(baseColor, [2.2 * pulse, 0.08, 2.2 * pulse], 0, glow);
+    mvPop();
+    
+    // Anel interno - mais brilhante
+    mvPush();
+    mat4.translate(mv, mv, [0, GROUND_Y + 0.25, 0]);
+    mat4.rotate(mv, mv, -gameTime * 0.8, [0, 1, 0]); // rotação oposta
+    const innerColor = [0.0, 1.0, 1.0, 0.9];
+    drawCube(innerColor, [1.5 * pulse, 0.06, 1.5 * pulse], 0, glow * 1.5);
+    mvPop();
+    
+    // Pilar central - suporte transparente
+    mvPush();
+    mat4.translate(mv, mv, [0, GROUND_Y + 0.8, 0]);
+    const pillarColor = [0.0, 0.6, 0.9, 0.3];
+    drawCube(pillarColor, [0.3, 1.2, 0.3], 0, glow * 0.8);
+    mvPop();
+    
+    // Partículas flutuantes - 4 peças ao redor
+    for (let i = 0; i < 4; i++) {
+        const angle = (gameTime * 0.6 + i * Math.PI * 0.5);
+        const radius = 2.5 + Math.sin(gameTime * 1.5 + i) * 0.3;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        const y = GROUND_Y + 1.5 + Math.sin(gameTime * 2.0 + i * 1.5) * 0.4;
+        
+        mvPush();
+        mat4.translate(mv, mv, [x, y, z]);
+        mat4.rotate(mv, mv, gameTime * 2.0 + i, [1, 1, 0]);
+        const particleColor = [0.0, 0.9, 1.0, 0.6];
+        drawCube(particleColor, [0.12, 0.12, 0.12], 0, glow * 2.0);
+        mvPop();
+    }
+}
+
 function _renderCustomize() {
-    const previewPos = [0, GROUND_Y + 1.5, 0];
-    camera.snapTo(previewPos, 0, previewPos);
+    // Câmera mais próxima e levemente acima para showcase
+    const previewPos = [0, GROUND_Y + 2.5, 0];
+    const camPos = [0, GROUND_Y + 2.5, 0];
+    camera.snapTo(previewPos, 0, camPos);
     camera.apply(getMV());
 
     drawArena(gameTime);
 
     if (previewEntity) {
+        // Rotação suave do preview
+        previewEntity.rot[1] = gameTime * 0.4; // 0.4 rad/s
+        
+        // Bobbing sutil (flutuação vertical)
+        const bobAmount = Math.sin(gameTime * 1.5) * 0.15;
+        const shape = getShape(playerCustom.shape);
+        const s = previewEntity.size;
+        previewEntity.pos[1] = GROUND_Y + s * shape.bodyScale[1] + 1.2 + bobAmount;
+        
         useObjShader();
+        
+        // Desenha pedestal primeiro (atrás do preview)
+        _drawPedestal(gameTime);
+        
+        // Depois desenha o preview em cima
         drawShadow(previewEntity);
         drawEntityPreview(previewEntity, gameTime);
+        
         endObjShader();
     }
 }
@@ -767,12 +834,12 @@ function _renderCustomize() {
 function _updatePreviewEntity() {
     const palette = getColor(playerCustom.color);
     const shape   = getShape(playerCustom.shape);
-    const s = 1.5;
+    const s = 1.8; // tamanho maior para showcase
 
     previewEntity = {
-        pos:       [0, GROUND_Y + s * shape.bodyScale[1], 0],
+        pos:       [0, GROUND_Y + s * shape.bodyScale[1] + 1.2, 0],
         vel:       [0, 0, 0],
-        rot:       [0, 0, 0],
+        rot:       [0, gameTime * 0.4, 0], // rotação inicial
         size:      s,
         mass:      1,
         hp:        100,
