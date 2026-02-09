@@ -51,14 +51,7 @@ export const BODY_SHAPES = [
         bodyRotZ: Math.PI / 4,
         armOffset: 0.6,
     },
-    {
-        id: 'flat',
-        name: 'Disco',
-        icon: '▂',
-        desc: 'Baixo e estável como rocha',
-        bodyScale: [1.3, 0.50, 1.3],
-        armOffset: 1.25,
-    },
+
     {
         id: 'pillar',
         name: 'Pilar',

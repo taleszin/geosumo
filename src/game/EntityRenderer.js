@@ -61,7 +61,7 @@ export function drawEntity(ent, gameTime) {
     }
 
     // ── 4. ROSTO em TODAS AS FACES ──────────────────────
-    _drawAllFaces(ent, s, palette, gameTime);
+    _drawAllFaces(ent, s, bs, palette, gameTime);
 
     // ── 5. BRAÇOS ────────────────────────────────────────
     const armOff = shape.armOffset || 0.9;
@@ -78,20 +78,23 @@ export function drawEntity(ent, gameTime) {
 /**
  * Desenha olhos e boca em todas as 4 faces do cubo.
  * Cada face recebe uma rotação Y diferente (0°, 90°, 180°, 270°).
+ * Correção: cada face tem offset Z único para evitar z-fighting.
+ * @param {array} bodyScale - Escala do corpo [x, y, z] para ajustar posição das faces
  */
-function _drawAllFaces(ent, s, palette, gameTime) {
+function _drawAllFaces(ent, s, bodyScale, palette, gameTime) {
     const mv = getMV();
     const faceRotations = [
-        0,                     // frente  (+Z)
-        Math.PI,               // trás    (-Z)
-        Math.PI * 0.5,         // direita (+X)
-       -Math.PI * 0.5,         // esquerda (-X)
+        { rot: 0,                  zOff: 0.000 },  // frente  (+Z)
+        { rot: Math.PI,            zOff: 0.002 },  // trás    (-Z)
+        { rot: Math.PI * 0.5,      zOff: 0.004 },  // direita (+X)
+        { rot: -Math.PI * 0.5,     zOff: 0.006 },  // esquerda (-X)
     ];
 
-    for (const rotY of faceRotations) {
+    for (let i = 0; i < faceRotations.length; i++) {
+        const face = faceRotations[i];
         mvPush();
-        mat4.rotate(mv, mv, rotY, [0, 1, 0]);
-        _drawFace(ent, s, palette, gameTime);
+        mat4.rotate(mv, mv, face.rot, [0, 1, 0]);
+        _drawFace(ent, s, bodyScale, palette, gameTime, face.zOff, i);
         mvPop();
     }
 }
@@ -99,54 +102,70 @@ function _drawAllFaces(ent, s, palette, gameTime) {
 /**
  * Desenha uma face completa (olhos + boca) virada para +Z.
  * O chamador rotaciona para a direção desejada.
+ * @param {array} bodyScale - Escala do corpo para ajustar posição Y
+ * @param {number} zOff - Offset Z único para evitar z-fighting
+ * @param {number} faceIndex - Índice da face (0-3) para variação
  */
-function _drawFace(ent, s, palette, gameTime) {
+function _drawFace(ent, s, bodyScale, palette, gameTime, zOff = 0, faceIndex = 0) {
     const expr = ent.expression || EXPR_NORMAL;
     
     // SEMPRE renderiza olhos e boca (correção de bug)
     // Usa a expressão apropriada para cada estado
     switch (expr) {
         case EXPR_ATTACK:
-            _drawEyesAttack(ent, s, palette, gameTime);
-            _drawMouthAttack(ent, s, palette, gameTime);
+            _drawEyesAttack(ent, s, bodyScale, palette, gameTime, zOff);
+            _drawMouthAttack(ent, s, bodyScale, palette, gameTime, zOff);
             break;
         case EXPR_HURT:
-            _drawEyesHurt(ent, s, palette, gameTime);
-            _drawMouthHurt(ent, s, palette, gameTime);
+            _drawEyesHurt(ent, s, bodyScale, palette, gameTime, zOff);
+            _drawMouthHurt(ent, s, bodyScale, palette, gameTime, zOff);
             break;
         case EXPR_STUNNED:
-            _drawEyesStunned(ent, s, palette, gameTime);
-            _drawMouthStunned(ent, s, palette, gameTime);
+            _drawEyesStunned(ent, s, bodyScale, palette, gameTime, zOff);
+            _drawMouthStunned(ent, s, bodyScale, palette, gameTime, zOff);
             break;
         case EXPR_CHARGING:
-            _drawEyesNormal(ent, s, palette, gameTime);
-            _drawMouthNormal(ent, s, palette, gameTime);
-            _drawChargeOverlay(ent, s, palette, gameTime);
+            _drawEyesCharging(ent, s, bodyScale, palette, gameTime, zOff);
+            _drawMouthCharging(ent, s, bodyScale, palette, gameTime, zOff);
             break;
         case EXPR_NORMAL:
         default:
-            _drawEyesNormal(ent, s, palette, gameTime);
-            _drawMouthNormal(ent, s, palette, gameTime);
+            _drawEyesNormal(ent, s, bodyScale, palette, gameTime, zOff, faceIndex);
+            _drawMouthNormal(ent, s, bodyScale, palette, gameTime, zOff);
             break;
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// NORMAL EYES — Do sistema de customização
-// ═══════════════════════════════════════════════════════════════════
+// NORMAL EYES — Do sistema de customização + piscadas dinâmicas
+// ═════════════════════════════════════════════════════════════════════
 
-function _drawEyesNormal(ent, s, palette, gameTime) {
+function _drawEyesNormal(ent, s, bodyScale, palette, gameTime, zOff = 0, faceIndex = 0) {
     const mv = getMV();
     const eyeType = getEyes(ent.custom.eyes);
     const eyeColor = palette.eye;
     const cubes = eyeType.build(s, eyeColor);
 
+    // Respiração sutil
     const breathY = Math.sin(gameTime * 2.0) * s * 0.01;
+    
+    // Piscadas aleatórias (baseado no faceIndex para variar entre faces)
+    const blinkCycle = Math.sin((gameTime + faceIndex * 0.5) * 0.8) * 0.5 + 0.5;
+    const blink = blinkCycle > 0.95 ? 1.0 - (blinkCycle - 0.95) * 20 : 1.0;
+    
+    // Movimento leve dos olhos (olhar para os lados)
+    const lookX = Math.sin(gameTime * 0.5 + faceIndex) * s * 0.02;
 
     cubes.forEach(c => {
         mvPush();
-        mat4.translate(mv, mv, [c.off[0], c.off[1] + breathY, c.off[2]]);
-        drawCube(c.col, c.sc, 0, 2.0);
+        // Ajusta Y baseado na escala do corpo (importante para formas achatadas)
+        const adjustedY = c.off[1] * bodyScale[1];
+        // Offset Z maior para evitar z-fighting + offset único por face
+        const zPos = c.off[2] + s * 0.08 + zOff;
+        mat4.translate(mv, mv, [c.off[0] + lookX, adjustedY + breathY, zPos]);
+        // Piscar: reduz altura verticalmente
+        const scaleY = c.sc[1] * blink;
+        drawCube(c.col, [c.sc[0], scaleY, c.sc[2]], 0, 2.2);
         mvPop();
     });
 }
@@ -155,7 +174,7 @@ function _drawEyesNormal(ent, s, palette, gameTime) {
 // NORMAL MOUTH — Do sistema de customização
 // ═══════════════════════════════════════════════════════════════════
 
-function _drawMouthNormal(ent, s, palette, _gameTime) {
+function _drawMouthNormal(ent, s, bodyScale, palette, _gameTime, zOff = 0) {
     const mv = getMV();
     const mouthType = getMouth(ent.custom.mouth);
     const mouthColor = palette.mouth;
@@ -163,8 +182,12 @@ function _drawMouthNormal(ent, s, palette, _gameTime) {
 
     cubes.forEach(c => {
         mvPush();
-        mat4.translate(mv, mv, c.off);
-        drawCube(c.col, c.sc, 0, 1.5);
+        // Ajusta Y baseado na escala do corpo
+        const adjustedY = c.off[1] * bodyScale[1];
+        // Offset Z maior + offset único por face
+        const zPos = c.off[2] + s * 0.08 + zOff;
+        mat4.translate(mv, mv, [c.off[0], adjustedY, zPos]);
+        drawCube(c.col, c.sc, 0, 1.8);
         mvPop();
     });
 }
@@ -173,27 +196,28 @@ function _drawMouthNormal(ent, s, palette, _gameTime) {
 // ATTACK EXPRESSION — Olhos furiosos + boca gritando
 // ═══════════════════════════════════════════════════════════════════
 
-function _drawEyesAttack(ent, s, palette, gameTime) {
+function _drawEyesAttack(ent, s, bodyScale, palette, gameTime, zOff = 0) {
     const mv = getMV();
     const eyeColor = palette.eye;
     const sp = s * 0.30;
-    const y  = s * 0.28;
-    const z  = s * 0.97;
+    const y  = s * 0.28 * bodyScale[1]; // ajustado pela escala Y
+    const z  = s * 0.97 + s * 0.08 + zOff; // offset aumentado
     const r  = s * 0.18;
 
     // Olhos maiores e angulares (furiosos)
     // Sobrancelha raivosa (linha inclinada acima de cada olho)
-    const shake = Math.sin(gameTime * 20) * s * 0.01;
+    const shake = Math.sin(gameTime * 25) * s * 0.015; // shake mais intenso
+    const pulse = 1.0 + Math.sin(gameTime * 10) * 0.08; // pulsação
 
     // Olho esquerdo
     mvPush();
     mat4.translate(mv, mv, [-sp + shake, y, z]);
-    drawCube(eyeColor, [r, r * 0.85, s * 0.04], 0, 3.0);
+    drawCube(eyeColor, [r * pulse, r * 0.85 * pulse, s * 0.04], 0, 3.5);
     mvPop();
     // Pupila contraída
     mvPush();
-    mat4.translate(mv, mv, [-sp + shake, y, z + s * 0.03]);
-    drawCube([0, 0, 0, 1], [r * 0.35, r * 0.35, s * 0.03], 0, 1.0);
+    mat4.translate(mv, mv, [-sp + shake, y, z + s * 0.02]);
+    drawCube([0, 0, 0, 1], [r * 0.35, r * 0.35, s * 0.02], 0, 1.0);
     mvPop();
     // Sobrancelha esquerda (inclinada para baixo no centro) /
     mvPush();
@@ -205,11 +229,12 @@ function _drawEyesAttack(ent, s, palette, gameTime) {
     // Olho direito
     mvPush();
     mat4.translate(mv, mv, [sp + shake, y, z]);
-    drawCube(eyeColor, [r, r * 0.85, s * 0.04], 0, 3.0);
+    drawCube(eyeColor, [r * pulse, r * 0.85 * pulse, s * 0.04], 0, 3.5);
     mvPop();
+    // Pupila contraída
     mvPush();
-    mat4.translate(mv, mv, [sp + shake, y, z + s * 0.03]);
-    drawCube([0, 0, 0, 1], [r * 0.35, r * 0.35, s * 0.03], 0, 1.0);
+    mat4.translate(mv, mv, [sp + shake, y, z + s * 0.02]);
+    drawCube([0, 0, 0, 1], [r * 0.35, r * 0.35, s * 0.02], 0, 1.0);
     mvPop();
     // Sobrancelha direita \
     mvPush();
@@ -219,22 +244,22 @@ function _drawEyesAttack(ent, s, palette, gameTime) {
     mvPop();
 }
 
-function _drawMouthAttack(ent, s, palette, gameTime) {
+function _drawMouthAttack(ent, s, bodyScale, palette, gameTime, zOff = 0) {
     const mv = getMV();
     const col = palette.mouth;
-    const y = s * -0.22;
-    const z = s * 0.97;
+    const y = s * -0.22 * bodyScale[1]; // ajustado pela escala Y
+    const z = s * 0.97 + s * 0.08 + zOff;
     const openAmount = 0.6 + 0.15 * Math.sin(gameTime * 12.0);
 
     // Boca grande aberta (retângulo)
     mvPush();
     mat4.translate(mv, mv, [0, y, z]);
-    drawCube(col, [s * 0.2, s * 0.1 * openAmount, s * 0.04], 0, 2.5);
+    drawCube(col, [s * 0.2, s * 0.1 * openAmount, s * 0.04], 0, 2.8);
     mvPop();
     // Interior escuro
     mvPush();
     mat4.translate(mv, mv, [0, y, z + s * 0.02]);
-    drawCube([0, 0, 0, 1], [s * 0.14, s * 0.06 * openAmount, s * 0.03], 0, 1.0);
+    drawCube([0, 0, 0, 1], [s * 0.14, s * 0.06 * openAmount, s * 0.02], 0, 1.0);
     mvPop();
 }
 
@@ -242,12 +267,12 @@ function _drawMouthAttack(ent, s, palette, gameTime) {
 // HURT EXPRESSION — Olhos X + boca "au!"
 // ═══════════════════════════════════════════════════════════════════
 
-function _drawEyesHurt(ent, s, palette, gameTime) {
+function _drawEyesHurt(ent, s, bodyScale, palette, gameTime, zOff = 0) {
     const mv = getMV();
     const col = palette.eye;
     const sp = s * 0.30;
-    const y  = s * 0.28;
-    const z  = s * 0.97;
+    const y  = s * 0.28 * bodyScale[1]; // ajustado pela escala Y
+    const z  = s * 0.97 + s * 0.08 + zOff;
     const p  = s * 0.05;
     const flash = 0.5 + 0.5 * Math.sin(gameTime * 18.0);
 
@@ -257,22 +282,22 @@ function _drawEyesHurt(ent, s, palette, gameTime) {
         mvPush();
         mat4.translate(mv, mv, [ex, y, z]);
         mat4.rotate(mv, mv, 0.78, [0, 0, 1]); // 45°
-        drawCube(col, [s * 0.14, p * 0.8, s * 0.03], 0, 2.0 + flash);
+        drawCube(col, [s * 0.14, p * 0.8, s * 0.03], 0, 2.5 + flash);
         mvPop();
         // Diagonal /
         mvPush();
         mat4.translate(mv, mv, [ex, y, z]);
         mat4.rotate(mv, mv, -0.78, [0, 0, 1]);
-        drawCube(col, [s * 0.14, p * 0.8, s * 0.03], 0, 2.0 + flash);
+        drawCube(col, [s * 0.14, p * 0.8, s * 0.03], 0, 2.5 + flash);
         mvPop();
     });
 }
 
-function _drawMouthHurt(ent, s, palette, _gameTime) {
+function _drawMouthHurt(ent, s, bodyScale, palette, _gameTime, zOff = 0) {
     const mv = getMV();
     const col = palette.mouth;
-    const y = s * -0.22;
-    const z = s * 0.97;
+    const y = s * -0.22 * bodyScale[1]; // ajustado pela escala Y
+    const z = s * 0.97 + s * 0.08 + zOff;
 
     // Boca torcida / ondulada (zigue-zague)
     const p = s * 0.04;
@@ -286,7 +311,7 @@ function _drawMouthHurt(ent, s, palette, _gameTime) {
     points.forEach(([px, py]) => {
         mvPush();
         mat4.translate(mv, mv, [px, py, z]);
-        drawCube(col, [p, p * 0.5, s * 0.03], 0, 1.8);
+        drawCube(col, [p, p * 0.5, s * 0.03], 0, 2.0);
         mvPop();
     });
 }
@@ -295,12 +320,12 @@ function _drawMouthHurt(ent, s, palette, _gameTime) {
 // STUNNED EXPRESSION — Olhos espiral + boca ondulada
 // ═══════════════════════════════════════════════════════════════════
 
-function _drawEyesStunned(ent, s, palette, gameTime) {
+function _drawEyesStunned(ent, s, bodyScale, palette, gameTime, zOff = 0) {
     const mv = getMV();
     const col = palette.eye;
     const sp = s * 0.30;
-    const y  = s * 0.28;
-    const z  = s * 0.97;
+    const y  = s * 0.28 * bodyScale[1]; // ajustado pela escala Y
+    const z  = s * 0.97 + s * 0.08 + zOff;
 
     // Olhos em espiral — representados como cubos girando
     const spin = gameTime * 6.0; // gira rápido
@@ -314,13 +339,13 @@ function _drawEyesStunned(ent, s, palette, gameTime) {
             const oy = Math.sin(angle) * r * 0.7;
             mvPush();
             mat4.translate(mv, mv, [ex + ox, y + oy, z]);
-            drawCube(col, [s * 0.04, s * 0.04, s * 0.03], 0, 2.5);
+            drawCube(col, [s * 0.04, s * 0.04, s * 0.03], 0, 3.0);
             mvPop();
         }
         // Centro
         mvPush();
         mat4.translate(mv, mv, [ex, y, z + s * 0.02]);
-        drawCube([0, 0, 0, 1], [s * 0.04, s * 0.04, s * 0.03], 0, 1.0);
+        drawCube([0, 0, 0, 1], [s * 0.04, s * 0.04, s * 0.02], 0, 1.0);
         mvPop();
     });
 
@@ -346,11 +371,11 @@ function _drawStars(ent, s, palette, gameTime) {
     }
 }
 
-function _drawMouthStunned(ent, s, palette, gameTime) {
+function _drawMouthStunned(ent, s, bodyScale, palette, gameTime, zOff = 0) {
     const mv = getMV();
     const col = palette.mouth;
-    const y = s * -0.22;
-    const z = s * 0.97;
+    const y = s * -0.22 * bodyScale[1]; // ajustado pela escala Y
+    const z = s * 0.97 + s * 0.08 + zOff;
 
     // Boca ondulada ~ (onda senoidal)
     const p = s * 0.04;
@@ -358,13 +383,71 @@ function _drawMouthStunned(ent, s, palette, gameTime) {
         const wave = Math.sin(gameTime * 8.0 + i * 0.8) * p * 0.6;
         mvPush();
         mat4.translate(mv, mv, [i * p * 1.3, y + wave, z]);
-        drawCube(col, [p * 0.8, p * 0.4, s * 0.03], 0, 1.5);
+        drawCube(col, [p * 0.8, p * 0.4, s * 0.03], 0, 1.8);
         mvPop();
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// CHARGING OVERLAY — Sobrancelhas concentradas sobre olhos normais
+// CHARGING EXPRESSION — Olhos concentrados + boca cerrada + aura
+// ═══════════════════════════════════════════════════════════════════
+
+function _drawEyesCharging(ent, s, bodyScale, palette, gameTime, zOff = 0) {
+    const mv = getMV();
+    const eyeType = getEyes(ent.custom.eyes);
+    const eyeColor = palette.eye;
+    const cubes = eyeType.build(s, eyeColor);
+
+    const intensity = ent.chargeAmount || 0;
+    const glow = 2.0 + intensity * 2.0;
+    const sp = s * 0.30;
+    const y = s * 0.28 * bodyScale[1]; // ajustado pela escala Y
+    const z = s * 0.97 + s * 0.08 + zOff;
+    const r = s * 0.15;
+
+    // Desenha olhos normais mas com mais glow
+    cubes.forEach(c => {
+        mvPush();
+        // Ajusta Y baseado na escala do corpo
+        const adjustedY = c.off[1] * bodyScale[1];
+        const zPos = c.off[2] + s * 0.08 + zOff;
+        mat4.translate(mv, mv, [c.off[0], adjustedY, zPos]);
+        drawCube(c.col, c.sc, 0, glow);
+        mvPop();
+    });
+
+    // Sobrancelhas cerradas (V shape) - concentração
+    const col = palette.mouth;
+    mvPush();
+    mat4.translate(mv, mv, [-sp, y + r * 1.0, z]);
+    mat4.rotate(mv, mv, -0.3 * intensity, [0, 0, 1]);
+    drawCube(col, [r * 0.9 * (0.5 + intensity * 0.5), s * 0.03, s * 0.04], 0, glow);
+    mvPop();
+
+    mvPush();
+    mat4.translate(mv, mv, [sp, y + r * 1.0, z]);
+    mat4.rotate(mv, mv, 0.3 * intensity, [0, 0, 1]);
+    drawCube(col, [r * 0.9 * (0.5 + intensity * 0.5), s * 0.03, s * 0.04], 0, glow);
+    mvPop();
+}
+
+function _drawMouthCharging(ent, s, bodyScale, palette, _gameTime, zOff = 0) {
+    const mv = getMV();
+    const intensity = ent.chargeAmount || 0;
+    const glow = 2.0 + intensity * 2.0;
+    const col = palette.mouth;
+    const y = s * -0.22 * bodyScale[1]; // ajustado pela escala Y
+    const z = s * 0.97 + s * 0.08 + zOff;
+
+    // Boca cerrada (linha horizontal)
+    mvPush();
+    mat4.translate(mv, mv, [0, y, z]);
+    drawCube(col, [s * 0.15 * (0.8 + intensity * 0.2), s * 0.025, s * 0.03], 0, glow);
+    mvPop();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CHARGE OVERLAY — DEPRECATED (merged into _drawEyesCharging)
 // ═══════════════════════════════════════════════════════════════════
 
 function _drawChargeOverlay(ent, s, palette, gameTime) {
@@ -523,7 +606,7 @@ export function drawEntityPreview(ent, gameTime) {
     }
 
     // Preview mostra rosto em todas as faces (como será in-game)
-    _drawAllFaces(ent, s, palette, gameTime);
+    _drawAllFaces(ent, s, bs, palette, gameTime);
 
     const armOff = shape.armOffset || 0.9;
     _drawArm(ent, 'left', -1, armOff);
