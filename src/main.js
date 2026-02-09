@@ -231,7 +231,9 @@ function tick(now) {
         _renderCustomize();
     } else {
         camera.apply(getMV());
-        drawArena(gameTime);
+        drawArena(gameTime,
+            player ? player.pos : [0, 0, 0],
+            [camera.eyeX, camera.eyeY, camera.eyeZ]);
 
         if (player && enemies.length > 0) {
             useObjShader();
@@ -1235,7 +1237,7 @@ function _renderCustomize() {
     camera.snapTo(previewPos, 0, camPos);
     camera.apply(getMV());
 
-    drawArena(gameTime);
+    drawArena(gameTime, [0, 0, 0], [camera.eyeX, camera.eyeY, camera.eyeZ]);
 
     if (previewEntity) {
         // Rotação suave do preview

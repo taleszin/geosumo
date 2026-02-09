@@ -1,17 +1,20 @@
 /**
- * Arena.js — Arena circular: verificação de borda, chão procedural, pilares.
+ * Arena.js — Arena circular: verificação de borda, chão procedural,
+ * barreira de força holográfica, volume 3D da plataforma.
  */
 import { mat4 } from 'gl-matrix';
-import { mvPush, mvPop, getMV, drawCube, drawFloor, useObjShader } from '../engine/Renderer.js';
+import { mvPush, mvPop, getMV, drawCube, drawFloor,
+         drawSkybox, drawBarrier, drawArenaVolume,
+         useObjShader } from '../engine/Renderer.js';
 import { GROUND_Y } from './Physics.js';
 
-export let ARENA_RADIUS = 16.0; // base arena size (will scale with enemy count)
+export let ARENA_RADIUS = 16.0;
 
 /**
  * Define o raio da arena baseado no número de inimigos.
  */
 export function setArenaRadius(numEnemies) {
-    ARENA_RADIUS = 16.0 * Math.sqrt(numEnemies); // escala com √n para manter densidade
+    ARENA_RADIUS = 16.0 * Math.sqrt(numEnemies);
 }
 
 /**
@@ -22,79 +25,46 @@ export function checkArenaEdge(ent) {
     const edge = Math.sqrt(ent.pos[0] * ent.pos[0] + ent.pos[2] * ent.pos[2]);
 
     if (edge > ARENA_RADIUS) {
-        // Fora da arena — perde o chão, cai
         ent.onGround = false;
     }
 
-    // Ring-out: caiu longe demais ou muito abaixo
     return ent.pos[1] < -10.0 || edge > ARENA_RADIUS + 5;
 }
 
 /**
- * Desenha o chão + pilares decorativos + BORDA DA ARENA VISUAL.
+ * Desenha a arena completa:
+ *  1. Skybox (Cyber-Void background)
+ *  2. Chão (shader procedural com grid)
+ *  3. Arena Volume (plataforma com espessura)
+ *  4. Barreira de força (anel holográfico na borda)
+ *
+ * @param {number} gameTime
+ * @param {Float32Array|number[]} playerPos — posição do jogador para reação de proximidade
+ * @param {Float32Array|number[]} eyePos — posição da câmera
  */
-export function drawArena(gameTime) {
+export function drawArena(gameTime, playerPos, eyePos) {
     const mv = getMV();
 
-    // ── Chão (shader procedural) ──
+    // ── 1. Skybox (renderizado antes de tudo, sem depth) ──
+    drawSkybox(gameTime);
+
+    // ── 2. Volume da plataforma (cilindro sólido abaixo do chão) ──
+    mvPush();
+    mat4.translate(mv, mv, [0, GROUND_Y, 0]);
+    drawArenaVolume(ARENA_RADIUS);
+    mvPop();
+
+    // ── 3. Chão (shader procedural — superfície de vidro da máquina) ──
     mvPush();
     mat4.translate(mv, mv, [0, GROUND_Y - 0.05, 0]);
     drawFloor(gameTime, ARENA_RADIUS);
     mvPop();
 
-    // ── BORDA VISUAL DA ARENA ──
-    // Anel externo que marca o limite (fica bem claro onde é a borda)
-    useObjShader();
-    const numEdgeSegments = 32;
-    for (let i = 0; i < numEdgeSegments; i++) {
-        const angle = (i / numEdgeSegments) * Math.PI * 2;
-        const nextAngle = ((i + 1) / numEdgeSegments) * Math.PI * 2;
-        
-        const x1 = Math.cos(angle) * ARENA_RADIUS;
-        const z1 = Math.sin(angle) * ARENA_RADIUS;
-        const x2 = Math.cos(nextAngle) * ARENA_RADIUS;
-        const z2 = Math.sin(nextAngle) * ARENA_RADIUS;
-        
-        const midX = (x1 + x2) * 0.5;
-        const midZ = (z1 + z2) * 0.5;
-        
-        // Barra vertical na borda (aviso visual)
-        const pulse = 0.6 + 0.4 * Math.sin(gameTime * 3.0 + i * 0.3);
-        mvPush();
-        mat4.translate(mv, mv, [midX, GROUND_Y + 0.15, midZ]);
-        drawCube(
-            [1.0, 0.1 * pulse, 0.1, 0.9], // vermelho pulsante
-            [0.3, 0.3, 0.3], 0, 1.5
-        );
-        mvPop();
-    }
-
-    // ── VOID visual (escuridão abaixo) ──
-    // Plataforma escura bem abaixo para dar sensação de queda no vazio
+    // ── 4. Barreira de força holográfica (anel na borda) ──
     mvPush();
-    mat4.translate(mv, mv, [0, GROUND_Y - 15, 0]);
-    drawCube(
-        [0.05, 0.0, 0.15, 0.7], // azul escuro translucido
-        [ARENA_RADIUS * 3, 0.1, ARENA_RADIUS * 3], 0, 0
-    );
+    mat4.translate(mv, mv, [0, GROUND_Y, 0]);
+    drawBarrier(gameTime, ARENA_RADIUS, playerPos || [0, 0, 0], eyePos || [18, 24, -18]);
     mvPop();
-
-    // ── Pilares na borda ──
-    const numPillars = 8;
-    for (let i = 0; i < numPillars; i++) {
-        const angle = (i / numPillars) * Math.PI * 2;
-        const px = Math.cos(angle) * (ARENA_RADIUS + 1.0);
-        const pz = Math.sin(angle) * (ARENA_RADIUS + 1.0);
-        const pulse = 0.8 + 0.2 * Math.sin(gameTime * 2.0 + i);
-
-        mvPush();
-        mat4.translate(mv, mv, [px, GROUND_Y + 1.5, pz]);
-        drawCube(
-            [0.0, 0.3 * pulse, 0.4 * pulse, 1.0],
-            [0.15, 1.5, 0.15], 0, 2.0
-        );
-        mvPop();
-    }
 }
 
 /**
