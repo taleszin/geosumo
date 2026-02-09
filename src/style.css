@@ -114,6 +114,61 @@ body {
     text-shadow: 0 0 8px #ff0;
 }
 
+/* ── Painel de Kills (canto superior direito) ────────────── */
+#kill-panel {
+    position: absolute;
+    top: 75px;
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 280px;
+}
+
+#kill-ranking {
+    background: rgba(0, 0, 0, 0.75);
+    border: 2px solid #0ff;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.8em;
+    line-height: 1.7;
+    box-shadow: 0 0 12px rgba(0, 255, 255, 0.3);
+}
+
+.rank-entry {
+    color: #fff;
+    text-shadow: 0 0 4px #0ff;
+    letter-spacing: 0.05em;
+}
+
+#kill-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.kill-msg {
+    background: rgba(0, 0, 0, 0.8);
+    border-left: 3px solid #ff4444;
+    padding: 6px 10px;
+    font-size: 0.7em;
+    color: #ffaa00;
+    text-shadow: 0 0 4px #ff4444;
+    animation: slideIn 0.3s ease;
+    border-radius: 2px;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
 /* ── Painéis laterais (controles + debug) ───────────────── */
 #panel-left {
     position: absolute;
@@ -447,6 +502,19 @@ body {
     .hp-container {
         max-width: 110px;
     }
+    
+    /* Kill panel mobile */
+    #kill-panel {
+        top: 60px;
+        right: 8px;
+        max-width: 200px;
+        font-size: 0.85em;
+    }
+    .kill-msg {
+        padding: 4px 8px;
+        font-size: 0.65em;
+    }
+    
     #state-title {
         font-size: 2em;
     }

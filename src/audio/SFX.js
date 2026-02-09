@@ -241,3 +241,12 @@ export function setChargeLevel(level) {
 export function update(dt) {
     // nothing for now
 }
+
+// Expõe AudioContext e masterGain para outros sistemas (DialogSystem)
+export function getAudioContext() {
+    return ctx;
+}
+
+export function getMasterGain() {
+    return master;
+}

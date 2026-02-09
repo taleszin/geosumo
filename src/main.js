@@ -16,8 +16,9 @@ import './style.css';
 
 // ── Engine ────────────────────────────────────────────────────
 import { initRenderer, initArenaPlane, resizeViewport,
-         beginFrame, useObjShader, endObjShader, getMV } from './engine/Renderer.js';
+         beginFrame, useObjShader, endObjShader, getMV, getProj } from './engine/Renderer.js';
 import { initInput, getInput, isTouchActive }            from './engine/Input.js';
+import { mat4, vec4 }                                    from 'gl-matrix';
 import * as SFX                                           from './audio/SFX.js';
 import * as Haptic                                        from './engine/Haptic.js';
 import { Camera }                                        from './engine/Camera.js';
@@ -36,6 +37,8 @@ import { EnemyAI }                                       from './game/Enemy.js';
 import { ARENA_RADIUS, checkArenaEdge, setArenaRadius,
          drawArena, drawShadow }                         from './game/Arena.js';
 import { drawEntity, drawEntityPreview }                 from './game/EntityRenderer.js';
+import { showDialog, updateDialogs, clearAllDialogs,
+         initDialogAudio, getDialog }                    from './game/DialogSystem.js';
 
 // ── Customization ─────────────────────────────────────────────
 import { SHAPE_IDS, COLOR_IDS, EYE_IDS, MOUTH_IDS,
@@ -73,6 +76,10 @@ let enemyCustom  = null; // será definido ao apertar ALEATÓRIO ou gerado autom
 
 // Preview entity
 let previewEntity = null;
+
+// Sistema de kills tracking
+let killLog = [];      // Array de strings: "PLAYER matou ENEMY 1", etc.
+let killCount = {};    // { "PLAYER": 2, "ENEMY 1": 0, ... }
 
 // FPS
 let fpsFrames  = 0;
@@ -131,12 +138,20 @@ function boot() {
 
     initArenaPlane(ARENA_RADIUS);
     window.addEventListener('resize', resizeCanvas);
+    
+    // Inicializar overlay 2D para balões de fala
+    _init2DOverlay();
+    _resize2DCanvas();
 
     camera = new Camera();
     initInput(() => phase, onStateClick);
 
     // Audio init — cria AudioContext e prepara os sintetizadores.
     SFX.init();
+    // Inicializa sistema de diálogo com o mesmo AudioContext
+    const audioCtx = SFX.getAudioContext ? SFX.getAudioContext() : null;
+    const masterGain = SFX.getMasterGain ? SFX.getMasterGain() : null;
+    if (audioCtx) initDialogAudio(audioCtx, masterGain);
     // Resume on first click/touch (sincroniza com política de autoplay dos navegadores)
     document.addEventListener('click',     () => SFX.resume(), { once: true });
     document.addEventListener('touchstart', () => SFX.resume(), { once: true });
@@ -209,6 +224,9 @@ function tick(now) {
             drawEntity(player, gameTime);
             enemies.forEach(enemy => drawEntity(enemy, gameTime));
             endObjShader();
+            
+            // Renderizar balões de fala (2D overlay)
+            _renderDialogBubbles();
         }
     }
 
@@ -223,6 +241,152 @@ function tick(now) {
     if (phase === 'fight' || phase === 'countdown') {
         updateHUD();
     }
+}
+
+// ═════════════════════════════════════════════════════════════
+// Projeção 3D → 2D (world space → screen space)
+// ═════════════════════════════════════════════════════════════
+
+function project3DTo2D(worldX, worldY, worldZ, mvMatrix, pMatrix, canvasWidth, canvasHeight) {
+    const worldPos = vec4.fromValues(worldX, worldY, worldZ, 1.0);
+    const viewPos = vec4.create();
+    const clipPos = vec4.create();
+    
+    // Multiply by view matrix
+    vec4.transformMat4(viewPos, worldPos, mvMatrix);
+    
+    // Multiply by projection matrix
+    vec4.transformMat4(clipPos, viewPos, pMatrix);
+    
+    // Perspective divide
+    if (clipPos[3] === 0) return null; // Behind camera
+    const ndcX = clipPos[0] / clipPos[3];
+    const ndcY = clipPos[1] / clipPos[3];
+    const ndcZ = clipPos[2] / clipPos[3];
+    
+    // Check if behind camera
+    if (ndcZ < -1 || ndcZ > 1) return null;
+    
+    // Convert NDC to screen space
+    const screenX = (ndcX + 1) * 0.5 * canvasWidth;
+    const screenY = (1 - ndcY) * 0.5 * canvasHeight; // Inverted Y
+    
+    return { x: screenX, y: screenY };
+}
+
+// ═════════════════════════════════════════════════════════════
+// Renderização 2D: Balões de fala
+// ═════════════════════════════════════════════════════════════
+
+let _2dCanvas = null;
+let _2dCtx = null;
+
+function _init2DOverlay() {
+    _2dCanvas = document.createElement('canvas');
+    _2dCanvas.style.position = 'absolute';
+    _2dCanvas.style.top = '0';
+    _2dCanvas.style.left = '0';
+    _2dCanvas.style.pointerEvents = 'none';
+    _2dCanvas.style.zIndex = '100';
+    document.body.appendChild(_2dCanvas);
+    _2dCtx = _2dCanvas.getContext('2d');
+}
+
+function _resize2DCanvas() {
+    if (!_2dCanvas) return;
+    _2dCanvas.width = window.innerWidth;
+    _2dCanvas.height = window.innerHeight;
+}
+
+function _renderDialogBubbles() {
+    if (!_2dCanvas || !_2dCtx) return;
+    
+    // Limpar canvas
+    _2dCtx.clearRect(0, 0, _2dCanvas.width, _2dCanvas.height);
+    
+    // Projetar posição 3D para 2D usando matrizes corretas
+    const allEntities = player ? [player, ...enemies] : enemies;
+    
+    // Usar viewMatrix da câmera (não getMV() que pode estar modificado)
+    const viewMat = camera.viewMatrix;
+    const projMat = getProj();
+    
+    allEntities.forEach(ent => {
+        const bubble = getDialog(ent);
+        if (!bubble || !bubble.currentText) return;
+        
+        // Posição da "cabeça" do personagem (acima dos olhos)
+        // Olhos ficam em ~0.28*size, então cabeça fica em ~0.6*size acima do centro
+        const headY = ent.pos[1] + (ent.size * 0.6);
+        
+        const screenPos = project3DTo2D(
+            ent.pos[0], 
+            headY, 
+            ent.pos[2], 
+            viewMat, 
+            projMat, 
+            _2dCanvas.width, 
+            _2dCanvas.height
+        );
+        
+        if (!screenPos) return; // Atrás da câmera ou fora da tela
+        
+        _drawSpeechBubble(_2dCtx, screenPos.x, screenPos.y - 20, bubble.currentText, bubble.getAlpha(), bubble.category);
+    });
+}
+
+function _drawSpeechBubble(ctx, x, y, text, alpha, category) {
+    // Cores por categoria
+    const colorMap = {
+        attack: '#ff4444',
+        hurt: '#ffaa00',
+        losing: '#4488ff',
+        winning: '#44ff44',
+        intro: '#ffffff',
+        victory: '#ffff00',
+        taunt: '#ff00ff',
+    };
+    const bubbleColor = colorMap[category] || '#ffffff';
+    
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    
+    // Medir texto
+    ctx.font = 'bold 16px monospace';
+    const metrics = ctx.measureText(text);
+    const textWidth = metrics.width;
+    const padding = 12;
+    const bubbleWidth = textWidth + padding * 2;
+    const bubbleHeight = 32;
+    const cornerRadius = 8;
+    
+    // Desenhar balão (fundo preto com borda colorida)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.strokeStyle = bubbleColor;
+    ctx.lineWidth = 3;
+    
+    // Retângulo arredondado
+    ctx.beginPath();
+    ctx.roundRect(x - bubbleWidth/2, y - bubbleHeight, bubbleWidth, bubbleHeight, cornerRadius);
+    ctx.fill();
+    ctx.stroke();
+    
+    // Triângulo apontador (rabinho do balão)
+    ctx.beginPath();
+    ctx.moveTo(x - 8, y);
+    ctx.lineTo(x + 8, y);
+    ctx.lineTo(x, y + 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    
+    // Texto
+    ctx.fillStyle = bubbleColor;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y - bubbleHeight/2);
+    
+    ctx.restore();
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -326,7 +490,10 @@ function _updateFight(dt) {
     checkArmGround(player, 'left');
     checkArmGround(player, 'right');
 
-    // 4. Colisões: player vs cada inimigo
+    // 4. Atualizar sistema de diálogos
+    updateDialogs(gameTime);
+
+    // 5. Colisões: player vs cada inimigo
     const shakeCb = (amt) => camera.addShake(amt);
     let maxHitForce = 0;
 
@@ -352,6 +519,11 @@ function _updateFight(dt) {
             Haptic.impactPulse(force);
             maxHitForce = Math.max(maxHitForce, force);
             
+            // Diálogo: inimigo leva hit
+            if (Math.random() < 0.3) showDialog(enemy, 'hurt'); // 30% chance
+            // Diálogo: player ataca
+            if (Math.random() < 0.2) showDialog(player, 'attack'); // 20% chance
+            
             // HIT FREEZE EXTRA para socos fortes do player (UX juice!)
             if (force > 0.4) {
                 slowMo = Math.min(slowMo, 0.3); // freeze mais forte
@@ -369,6 +541,11 @@ function _updateFight(dt) {
             SFX.playImpact(force);
             Haptic.heavyPulse();
             maxHitForce = Math.max(maxHitForce, force);
+            
+            // Diálogo: player leva hit
+            if (Math.random() < 0.3) showDialog(player, 'hurt');
+            // Diálogo: inimigo ataca
+            if (Math.random() < 0.2) showDialog(enemy, 'attack');
         }
 
         // Body collision player vs enemy
@@ -447,6 +624,24 @@ function _updateFight(dt) {
     if (maxHitForce > 0.15) {
         slowMo = clamp(0.15 + (1.0 - maxHitForce) * 0.5, 0.1, 0.6);
     }
+    // Slow-mo recovery gradual
+    slowMo = Math.min(slowMo + 0.03, 1.0);
+
+    // 5.5. Diálogos contextuais baseados em situação de vida (esporádico)
+    if (Math.random() < 0.002) { // ~0.2% chance por frame
+        // Player perdendo (poucas vidas)
+        if (player.lives / player.maxLives <= 0.4 && Math.random() < 0.5) {
+            showDialog(player, 'losing');
+        }
+        // Inimigos perdendo/vencendo
+        enemies.forEach(enemy => {
+            if (enemy.lives / enemy.maxLives <= 0.4 && Math.random() < 0.3) {
+                showDialog(enemy, 'losing');
+            } else if (player.lives / player.maxLives <= 0.4 && Math.random() < 0.2) {
+                showDialog(enemy, 'winning');
+            }
+        });
+    }
 
     // 6. Edge warning
     const playerEdge = Math.sqrt(player.pos[0] ** 2 + player.pos[2] ** 2);
@@ -466,6 +661,10 @@ function _updateFight(dt) {
     if (playerOut) {
         player.lives--;
         SFX.playRingOut(); // som de queda
+        
+        // Registrar kill (último inimigo que atacou)
+        const killer = enemies.length > 0 ? enemies[0].name : 'ARENA';
+        _registerKill(killer, 'PLAYER');
         
         if (player.lives > 0) {
             // Respawn player no centro com dano zerado
@@ -490,6 +689,9 @@ function _updateFight(dt) {
         if (enemyOut) {
             enemy.lives--;
             SFX.playRingOut();
+            
+            // Registrar kill do player
+            _registerKill('PLAYER', enemy.name);
             
             if (enemy.lives > 0) {
                 // Respawn inimigo numa posição aleatória
@@ -518,6 +720,8 @@ function _updateFight(dt) {
         showStateScreen('VITÓRIA!', `Round ${round} completado — ${numEnemies} adversários derrotados!`,
             '[ TOQUE OU CLIQUE PARA CONTINUAR ]', '#0f0');
         SFX.playWin();
+        // Diálogo de vitória do player
+        if (player && Math.random() < 0.8) showDialog(player, 'victory');
     }
 
     // 8. Cor reage ao dano acumulado
@@ -720,6 +924,7 @@ function startCountdown() {
     player = makePlayerEntity([0, 0, -4], 1.2, playerCustom);
     player.lives = numLives;
     player.maxLives = numLives;
+    player.name = 'PLAYER';
 
     // Criar múltiplos inimigos em posições distribuídas em círculo
     enemies = [];
@@ -734,6 +939,7 @@ function startCountdown() {
         const enemy = makeEnemyEntity([x, 0, z], size, randomCustomization());
         enemy.lives = numLives;
         enemy.maxLives = numLives;
+        enemy.name = `ENEMY ${i + 1}`;
         enemies.push(enemy);
         enemyAIs.push(new EnemyAI());
     }
@@ -744,6 +950,12 @@ function startCountdown() {
 
     // Criar barras de HP dinamicamente
     _createDynamicHPBars();
+    
+    // Inicializar sistema de kills
+    killLog = [];
+    killCount = { 'PLAYER': 0 };
+    enemies.forEach(e => { killCount[e.name] = 0; });
+    _updateKillFeed();
 
     // Se estamos em modo de desenvolvimento/teste, pule o countdown
     if (typeof DEV !== 'undefined' && DEV.hideRound) {
@@ -766,6 +978,13 @@ function startCountdown() {
     $roundNum.textContent = round;
 
     edgeWarning = 0;
+    
+    // Diálogos de introdução
+    clearAllDialogs();
+    if (player && Math.random() < 0.7) showDialog(player, 'intro');
+    enemies.forEach(enemy => {
+        if (Math.random() < 0.5) showDialog(enemy, 'intro');
+    });
 }
 
 function nextRound() {
@@ -835,6 +1054,42 @@ function _createDynamicHPBars() {
     });
 }
 
+// ═════════════════════════════════════════════════════════════
+// Sistema de Kills Tracking
+// ═════════════════════════════════════════════════════════════
+
+function _registerKill(killerName, victimName) {
+    // Adicionar ao log
+    const killMsg = `${killerName} matou ${victimName}`;
+    killLog.push(killMsg);
+    if (killLog.length > 5) killLog.shift(); // Manter apenas últimas 5 kills
+    
+    // Incrementar contador
+    if (!killCount[killerName]) killCount[killerName] = 0;
+    killCount[killerName]++;
+    
+    // Atualizar UI
+    _updateKillFeed();
+}
+
+function _updateKillFeed() {
+    const $killFeed = document.getElementById('kill-feed');
+    const $ranking = document.getElementById('kill-ranking');
+    
+    if ($killFeed) {
+        $killFeed.innerHTML = killLog.map(msg => `<div class="kill-msg">⚔ ${msg}</div>`).join('');
+    }
+    
+    if ($ranking) {
+        // Ordenar por kills (maior primeiro)
+        const sorted = Object.entries(killCount).sort((a, b) => b[1] - a[1]);
+        $ranking.innerHTML = sorted.map(([name, kills], idx) => {
+            const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '▪';
+            return `<div class="rank-entry">${medal} ${name}: ${kills}</div>`;
+        }).join('');
+    }
+}
+
 function updateHUD() {
     if (player) {
         // Sistema de dano %, estilo Smash Bros
@@ -860,6 +1115,7 @@ function updateHUD() {
             $hpPlayerBar.style.alignItems = 'center';
             $hpPlayerBar.style.fontSize = '20px';
             $hpPlayerBar.style.fontWeight = 'bold';
+            $hpPlayerBar.style.color = '#fff';
             $hpPlayerBar.style.textShadow = '0 0 4px #000';
         }
         
@@ -892,6 +1148,7 @@ function updateHUD() {
             $hpEnemyBar.style.alignItems = 'center';
             $hpEnemyBar.style.fontSize = '20px';
             $hpEnemyBar.style.fontWeight = 'bold';
+            $hpEnemyBar.style.color = '#fff';
             $hpEnemyBar.style.textShadow = '0 0 4px #000';
         }
         
@@ -958,6 +1215,7 @@ function resizeCanvas() {
     $canvas.width  = window.innerWidth;
     $canvas.height = window.innerHeight;
     resizeViewport($canvas.width, $canvas.height);
+    _resize2DCanvas();
 }
 
 // ═════════════════════════════════════════════════════════════

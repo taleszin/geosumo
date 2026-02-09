@@ -16,6 +16,7 @@ import { clamp } from '../engine/MathUtils.js';
 import { mvPush, mvPop, getMV, drawCube } from '../engine/Renderer.js';
 import { getShape, getColor, getEyes, getMouth } from '../data/Customization.js';
 import { EXPR_NORMAL, EXPR_ATTACK, EXPR_HURT, EXPR_STUNNED, EXPR_CHARGING } from './Entity.js';
+import { getDialog } from './DialogSystem.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN: Desenha entidade completa
@@ -101,23 +102,32 @@ function _drawAllFaces(ent, s, palette, gameTime) {
  */
 function _drawFace(ent, s, palette, gameTime) {
     const expr = ent.expression || EXPR_NORMAL;
-
-    if (expr === EXPR_NORMAL || expr === EXPR_CHARGING) {
-        _drawEyesNormal(ent, s, palette, gameTime);
-        _drawMouthNormal(ent, s, palette, gameTime);
-
-        if (expr === EXPR_CHARGING) {
+    
+    // SEMPRE renderiza olhos e boca (correção de bug)
+    // Usa a expressão apropriada para cada estado
+    switch (expr) {
+        case EXPR_ATTACK:
+            _drawEyesAttack(ent, s, palette, gameTime);
+            _drawMouthAttack(ent, s, palette, gameTime);
+            break;
+        case EXPR_HURT:
+            _drawEyesHurt(ent, s, palette, gameTime);
+            _drawMouthHurt(ent, s, palette, gameTime);
+            break;
+        case EXPR_STUNNED:
+            _drawEyesStunned(ent, s, palette, gameTime);
+            _drawMouthStunned(ent, s, palette, gameTime);
+            break;
+        case EXPR_CHARGING:
+            _drawEyesNormal(ent, s, palette, gameTime);
+            _drawMouthNormal(ent, s, palette, gameTime);
             _drawChargeOverlay(ent, s, palette, gameTime);
-        }
-    } else if (expr === EXPR_ATTACK) {
-        _drawEyesAttack(ent, s, palette, gameTime);
-        _drawMouthAttack(ent, s, palette, gameTime);
-    } else if (expr === EXPR_HURT) {
-        _drawEyesHurt(ent, s, palette, gameTime);
-        _drawMouthHurt(ent, s, palette, gameTime);
-    } else if (expr === EXPR_STUNNED) {
-        _drawEyesStunned(ent, s, palette, gameTime);
-        _drawMouthStunned(ent, s, palette, gameTime);
+            break;
+        case EXPR_NORMAL:
+        default:
+            _drawEyesNormal(ent, s, palette, gameTime);
+            _drawMouthNormal(ent, s, palette, gameTime);
+            break;
     }
 }
 
