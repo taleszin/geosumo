@@ -28,11 +28,29 @@ export function drawEntity(ent, gameTime) {
     const shape  = getShape(custom.shape);
     const palette = getColor(custom.color);
 
+    // ── Ring-out / Spawn animation support ───────────────
+    const rAlpha = ent.renderAlpha != null ? ent.renderAlpha : 1.0;
+    const rScale = ent.renderScale != null ? ent.renderScale : 1.0;
+    if (rAlpha <= 0.01) return; // fully invisible, skip draw
+
+    // Temporarily apply alpha to entity colors
+    const savedBodyA = ent.color[3];
+    const savedArmLA = ent.arms.left.color[3];
+    const savedArmRA = ent.arms.right.color[3];
+    ent.color[3] = savedBodyA * rAlpha;
+    ent.arms.left.color[3] = savedArmLA * rAlpha;
+    ent.arms.right.color[3] = savedArmRA * rAlpha;
+
     mvPush();
     mat4.translate(mv, mv, ent.pos);
     mat4.rotate(mv, mv, ent.rot[1], [0, 1, 0]);
     mat4.rotate(mv, mv, ent.rot[0], [1, 0, 0]);
     mat4.rotate(mv, mv, ent.rot[2], [0, 0, 1]);
+
+    // Apply spawn scale (uniform)
+    if (rScale !== 1.0) {
+        mat4.scale(mv, mv, [rScale, rScale, rScale]);
+    }
 
     // ── 1. CORPO ─────────────────────────────────────────
     const basePulse = 1.0 + Math.sin(gameTime * 3.0) * 0.012;
@@ -69,6 +87,11 @@ export function drawEntity(ent, gameTime) {
     _drawArm(ent, 'right',  1, armOff);
 
     mvPop();
+
+    // Restore original alpha values
+    ent.color[3] = savedBodyA;
+    ent.arms.left.color[3] = savedArmLA;
+    ent.arms.right.color[3] = savedArmRA;
 }
 
 // ═══════════════════════════════════════════════════════════════════

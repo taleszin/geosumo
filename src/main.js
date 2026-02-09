@@ -268,7 +268,9 @@ function tick(now) {
             _renderPowerUpItem(gameTime);
             
             drawShadow(player);
-            enemies.forEach(enemy => drawShadow(enemy));
+            enemies.forEach(enemy => {
+                if (enemy.ringOutState !== 'dead') drawShadow(enemy);
+            });
             
             // Renderizar buff auras ANTES das entidades
             _renderBuffAura(player, gameTime);
@@ -901,9 +903,12 @@ function _updateCountdown(dt) {
 function _updateFight(dt) {
     const input = getInput();
 
-    // 1. Player com feedback de charge
-    const moveResult = updatePlayerMovement(player, input, 0);
-    updatePlayerArms(player, input, isTouchActive());
+    // 1. Player com feedback de charge (only when alive)
+    let moveResult = { charging: false, dashPower: 0 };
+    if (player.ringOutState === 'alive') {
+        moveResult = updatePlayerMovement(player, input, 0);
+        updatePlayerArms(player, input, isTouchActive());
+    }
 
     // Movement SFX level
     const hSpeed = Math.sqrt(player.vel[0] ** 2 + player.vel[2] ** 2);
@@ -973,18 +978,28 @@ function _updateFight(dt) {
 
     // 2. Atualizar todos os inimigos e suas IAs
     enemies.forEach((enemy, idx) => {
-        enemyAIs[idx].update(enemy, player, enemies, gameTime, ARENA_RADIUS);
-        updateEntityPhysics(enemy);
-        tickExpression(enemy);
-        checkArmGround(enemy, 'left');
-        checkArmGround(enemy, 'right');
+        if (enemy.ringOutState === 'alive') {
+            enemyAIs[idx].update(enemy, player, enemies, gameTime, ARENA_RADIUS);
+            updateEntityPhysics(enemy);
+            tickExpression(enemy);
+            checkArmGround(enemy, 'left');
+            checkArmGround(enemy, 'right');
+        } else if (enemy.ringOutState === 'dying') {
+            // Still apply gravity so entity falls visually
+            updateEntityPhysics(enemy);
+        }
+        // dead/spawning: no physics
     });
 
     // 3. Física do player
-    updateEntityPhysics(player);
-    tickExpression(player);
-    checkArmGround(player, 'left');
-    checkArmGround(player, 'right');
+    if (player.ringOutState === 'alive') {
+        updateEntityPhysics(player);
+        tickExpression(player);
+        checkArmGround(player, 'left');
+        checkArmGround(player, 'right');
+    } else if (player.ringOutState === 'dying') {
+        updateEntityPhysics(player);
+    }
 
     // 4. Atualizar sistema de diálogos
     updateDialogs(gameTime);
@@ -994,6 +1009,11 @@ function _updateFight(dt) {
     let maxHitForce = 0;
 
     enemies.forEach((enemy) => {
+        // Skip collision for inactive entities
+        if (!_isEntityActive(enemy) || !_isEntityActive(player)) return;
+        // Spawning entities are invulnerable
+        if (enemy.ringOutState === 'spawning' || player.ringOutState === 'spawning') return;
+
         // Braço do player vs corpo do inimigo
         const hitEL = checkArmHit(player, enemy, 'left',  -1, shakeCb, ARENA_RADIUS);
         const hitER = checkArmHit(player, enemy, 'right',  1, shakeCb, ARENA_RADIUS);
@@ -1252,74 +1272,85 @@ function _updateFight(dt) {
     const mappedIntensity = Math.floor(clamp(intensity, 1, 5));
     SFX.setCombatIntensity(mappedIntensity);
 
-    // 7. Verificar ring-outs e gerenciar sistema de vidas (Smash Bros style)
-    const playerOut = checkArenaEdge(player);
-    
-    if (playerOut) {
-        player.lives--;
-        SFX.playRingOut(); // som de queda
-        
-        // Registrar kill (último inimigo que atacou)
-        const killer = enemies.length > 0 ? enemies[0].name : 'ARENA';
-        _registerKill(killer, 'PLAYER');
-        
-        if (player.lives > 0) {
-            // Respawn player no centro com dano zerado
-            _respawnEntity(player, [0, 0, -4]);
-        } else {
-            // Game Over
-            phase = 'lose';
-            $hud.style.display = 'none';
-            $stateTitle.style.fontSize = '';
-            showStateScreen('DERROTA', `Eliminado no round ${round}`,
-                '[ TOQUE OU CLIQUE PARA RECOMEÇAR ]', '#f22');
-            SFX.playLose();
-            SFX.setAmbientLevel(0); // pad OFF
-            SFX.setMovementLevel(0);
-            return; // não continuar update
+    // 7. Ring-out detection — animate instead of instant respawn
+    // Only check arena edge for entities currently 'alive'
+    if (player.ringOutState === 'alive') {
+        const playerOut = checkArenaEdge(player);
+        if (playerOut) {
+            player.lives--;
+            SFX.playRingOut();
+            const killer = enemies.length > 0 ? enemies[0].name : 'ARENA';
+            _registerKill(killer, 'PLAYER');
+
+            if (player.lives > 0) {
+                _startRingOutDying(player, [0, 0, -4]);
+            } else {
+                // Game Over — fade out then show screen
+                _startRingOutDying(player, [0, 0, -4]);
+                // Schedule game-over after fade
+                setTimeout(() => {
+                    if (phase !== 'fight') return;
+                    phase = 'lose';
+                    $hud.style.display = 'none';
+                    $stateTitle.style.fontSize = '';
+                    showStateScreen('DERROTA', `Eliminado no round ${round}`,
+                        '[ TOQUE OU CLIQUE PARA RECOMEÇAR ]', '#f22');
+                    SFX.playLose();
+                    SFX.setAmbientLevel(0);
+                    SFX.setMovementLevel(0);
+                }, RINGOUT_FADE_DUR * 1000 + 200);
+            }
         }
     }
-    
-    // Verificar queda de inimigos e respawn
-    const aliveEnemies = [];
-    const aliveAIs = [];
+
+    // Check enemies ring-out
     enemies.forEach((enemy, idx) => {
+        if (enemy.ringOutState !== 'alive') return;
         const enemyOut = checkArenaEdge(enemy);
         if (enemyOut) {
             enemy.lives--;
             SFX.playRingOut();
-            
-            // Registrar kill do player
             _registerKill('PLAYER', enemy.name);
-            
+
             if (enemy.lives > 0) {
-                // Respawn inimigo numa posição aleatória
                 const angle = Math.random() * Math.PI * 2;
                 const dist = 6;
-                const x = Math.sin(angle) * dist;
-                const z = Math.cos(angle) * dist;
-                _respawnEntity(enemy, [x, 0, z]);
-                aliveEnemies.push(enemy);
-                aliveAIs.push(enemyAIs[idx]);
+                _startRingOutDying(enemy, [Math.sin(angle) * dist, 0, Math.cos(angle) * dist]);
+            } else {
+                // Eliminated — will be removed after fade
+                _startRingOutDying(enemy, [0, 0, 0]);
             }
-            // Se lives <= 0, não adiciona de volta (eliminado)
-        } else {
+        }
+    });
+
+    // 7.5. Update ring-out animations for all entities
+    if (player.ringOutState !== 'alive') {
+        _updateRingOutState(player, dt);
+    }
+    const aliveEnemies = [];
+    const aliveAIs = [];
+    enemies.forEach((enemy, idx) => {
+        const shouldRemove = _updateRingOutState(enemy, dt);
+        if (!shouldRemove) {
             aliveEnemies.push(enemy);
             aliveAIs.push(enemyAIs[idx]);
         }
+        // shouldRemove=true means lives=0 AND fade finished → eliminated
     });
     enemies = aliveEnemies;
     enemyAIs = aliveAIs;
 
-    // Condições de vitória
-    if (enemies.length === 0) {
+    // Condições de vitória — all enemies fully eliminated
+    const allEnemiesGone = enemies.length === 0 ||
+        enemies.every(e => e.lives <= 0 && e.ringOutState !== 'alive');
+    if (enemies.length === 0 && phase === 'fight') {
         phase = 'win';
         $hud.style.display = 'none';
         $stateTitle.style.fontSize = '';
         showStateScreen('VITÓRIA!', `Round ${round} completado — ${numEnemies} adversários derrotados!`,
             '[ TOQUE OU CLIQUE PARA CONTINUAR ]', '#0f0');
         SFX.playWin();
-        SFX.setAmbientLevel(0); // pad OFF
+        SFX.setAmbientLevel(0);
         SFX.setMovementLevel(0);
         if (player && Math.random() < 0.8) showDialog(player, 'victory');
     }
@@ -1531,15 +1562,32 @@ function _initCustomizeUI() {
 
     $custRandomBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        // Toca o som caótico do botão aleatório sendo apertado
         SFX.playRandomize();
+        
+        // Randomiza TUDO: aparência + settings de combate
         const rand = randomCustomization();
-        // Aplica ao jogador
         playerCustom.shape = rand.shape;
         playerCustom.color = rand.color;
         playerCustom.eyes  = rand.eyes;
         playerCustom.mouth = rand.mouth;
-        // Também gera e salva a customização do inimigo (resultado do mesmo botão ALEATÓRIO)
         enemyCustom = randomCustomization();
+        
+        // Randomiza número de inimigos (1-4)
+        numEnemies = Math.floor(Math.random() * 4) + 1;
+        
+        // Randomiza número de vidas (1-5)
+        numLives = Math.floor(Math.random() * 5) + 1;
+        
+        // Randomiza dificuldade (0-2)
+        difficulty = Math.floor(Math.random() * 3);
+        
+        // Toca uma "sinfonia" representando os settings escolhidos
+        // (com delay para não sobrepor o som do botão)
+        setTimeout(() => {
+            SFX.playSettingsSymphony(numEnemies, numLives, difficulty);
+        }, 500);
+        
         _updateCustomizeDisplay();
     });
 
@@ -1609,6 +1657,7 @@ function startCountdown() {
     player.lives = numLives;
     player.maxLives = numLives;
     player.name = 'PLAYER';
+    _initRingOutProps(player);
 
     // Criar múltiplos inimigos em posições distribuídas em círculo
     enemies = [];
@@ -1624,6 +1673,7 @@ function startCountdown() {
         enemy.lives = numLives;
         enemy.maxLives = numLives;
         enemy.name = `ENEMY ${i + 1}`;
+        _initRingOutProps(enemy);
         enemies.push(enemy);
         enemyAIs.push(new EnemyAI());
     }
@@ -1844,8 +1894,9 @@ function updateHUD() {
         // Mostrar vidas (stock) do player
         const $playerLabel = document.querySelector('#hp-player-container .hp-label');
         if ($playerLabel) {
-            const livesIcons = '♥'.repeat(player.lives) + '♡'.repeat(player.maxLives - player.lives);
-            $playerLabel.textContent = `PLAYER ${livesIcons}`;
+            const alive = '♥'.repeat(player.lives);
+            const lost  = '<span class="lost">' + '♡'.repeat(player.maxLives - player.lives) + '</span>';
+            $playerLabel.innerHTML = `PLAYER <span class="hp-lives">${alive}${lost}</span>`;
         }
     }
     
@@ -1877,8 +1928,9 @@ function updateHUD() {
         // Mostrar vidas (stock) do inimigo
         const $enemyLabel = document.querySelector(`#hp-enemy-container-${idx} .hp-label`);
         if ($enemyLabel) {
-            const livesIcons = '♥'.repeat(enemy.lives) + '♡'.repeat(enemy.maxLives - enemy.lives);
-            $enemyLabel.textContent = `ENEMY ${idx + 1} ${livesIcons}`;
+            const alive = '♥'.repeat(enemy.lives);
+            const lost  = '<span class="lost">' + '♡'.repeat(enemy.maxLives - enemy.lives) + '</span>';
+            $enemyLabel.innerHTML = `ENEMY ${idx + 1} <span class="hp-lives">${alive}${lost}</span>`;
         }
     });
 
@@ -1897,6 +1949,110 @@ function updateHUD() {
         }
     }
     $dbgFps.textContent = `FPS: ${fpsCurrent}`;
+}
+
+// ═════════════════════════════════════════════════════════════
+// Ring-out / Respawn Animation System
+// ═════════════════════════════════════════════════════════════
+
+// Ring-out timing constants (seconds)
+const RINGOUT_FADE_DUR   = 0.7;   // fade-out duration
+const RINGOUT_COOLDOWN   = 2.5;   // wait before respawn
+const RINGOUT_SPAWN_DUR  = 0.5;   // scale-in duration
+
+/**
+ * Initialize ring-out animation properties on an entity.
+ */
+function _initRingOutProps(ent) {
+    ent.ringOutState  = 'alive';   // 'alive' | 'dying' | 'dead' | 'spawning'
+    ent.ringOutTimer  = 0;
+    ent.renderAlpha   = 1.0;
+    ent.renderScale   = 1.0;
+    ent._respawnPos   = null;      // set when entering dead state
+}
+
+/**
+ * Start the dying animation for an entity that fell off.
+ */
+function _startRingOutDying(ent, respawnPos) {
+    ent.ringOutState = 'dying';
+    ent.ringOutTimer = 0;
+    ent._respawnPos  = respawnPos;
+    SFX.playFallingOut();
+}
+
+/**
+ * Update all ring-out animations each frame.
+ * Returns true if the entity should be removed (eliminated with 0 lives).
+ */
+function _updateRingOutState(ent, dt) {
+    if (ent.ringOutState === 'alive') return false;
+
+    ent.ringOutTimer += dt;
+
+    if (ent.ringOutState === 'dying') {
+        // Fade alpha from 1 → 0 over RINGOUT_FADE_DUR
+        const t = clamp(ent.ringOutTimer / RINGOUT_FADE_DUR, 0, 1);
+        ent.renderAlpha = 1.0 - t;
+        ent.renderScale = 1.0 - t * 0.3; // slight shrink
+
+        if (ent.ringOutTimer >= RINGOUT_FADE_DUR) {
+            if (ent.lives <= 0) {
+                // Eliminated! Remove from game
+                ent.renderAlpha = 0;
+                return true; // signal: remove this entity
+            }
+            // Transition to dead (cooldown)
+            ent.ringOutState = 'dead';
+            ent.ringOutTimer = 0;
+            ent.renderAlpha  = 0;
+            ent.renderScale  = 0;
+        }
+    }
+    else if (ent.ringOutState === 'dead') {
+        // Waiting for respawn cooldown
+        ent.renderAlpha = 0;
+        ent.renderScale = 0;
+
+        if (ent.ringOutTimer >= RINGOUT_COOLDOWN) {
+            // Respawn!
+            _respawnEntity(ent, ent._respawnPos);
+            ent.ringOutState = 'spawning';
+            ent.ringOutTimer = 0;
+            ent.renderAlpha  = 1.0;
+            ent.renderScale  = 0.01; // start tiny
+            SFX.playRespawn();
+        }
+    }
+    else if (ent.ringOutState === 'spawning') {
+        // Scale from 0 → 1 with elastic ease-out
+        const t = clamp(ent.ringOutTimer / RINGOUT_SPAWN_DUR, 0, 1);
+        // Elastic ease-out for bouncy feel
+        const elastic = t === 1 ? 1 : 1 - Math.pow(2, -10 * t) * Math.cos((t * 10 - 0.75) * (2 * Math.PI / 3));
+        ent.renderScale = elastic;
+        ent.renderAlpha = 1.0;
+
+        // Invulnerability flash during spawn
+        ent.hitFlash = Math.sin(ent.ringOutTimer * 20) * 0.3 + 0.3;
+
+        if (ent.ringOutTimer >= RINGOUT_SPAWN_DUR) {
+            // Fully alive again
+            ent.ringOutState = 'alive';
+            ent.ringOutTimer = 0;
+            ent.renderAlpha  = 1.0;
+            ent.renderScale  = 1.0;
+            ent.hitFlash     = 0;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Check if entity is actively in the game (can be hit, can fight).
+ */
+function _isEntityActive(ent) {
+    return ent.ringOutState === 'alive' || ent.ringOutState === 'spawning';
 }
 
 // ═════════════════════════════════════════════════════════════

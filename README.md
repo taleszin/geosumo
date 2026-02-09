@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Um jogo de luta 3D minimalista inspirado em Super Smash Bros, construído do zero com WebGL puro**
+**Um jogo de luta 3D minimalista inspirado em jogos estilo Brawl, com uma pitada de música procedural, construído do zero com WebGL puro**
 
 [![WebGL](https://img.shields.io/badge/WebGL-1.0-990000?style=flat&logo=webgl)](https://www.khronos.org/webgl/)
 [![GLSL](https://img.shields.io/badge/GLSL-Shaders-5586A4?style=flat)](https://www.khronos.org/opengl/wiki/OpenGL_Shading_Language)
@@ -23,7 +23,7 @@
 
 Diferente de jogos de luta tradicionais com barra de vida, no GEO SUMO o **dano acumulado aumenta o knockback**. Quanto mais dano você tem (exibido como %), mais longe você é empurrado pelos ataques. O objetivo é jogar seus oponentes para fora da arena circular!
 
-### ✨ Destaques Técnicos
+###  Destaques Técnicos
 
 - **100% WebGL Puro**: Sem engines, sem bibliotecas de renderização — WebGL e GLSL do zero
 - **Zero Texturas**: Tudo é procedural — cores, gradientes, efeitos de glow
@@ -32,6 +32,7 @@ Diferente de jogos de luta tradicionais com barra de vida, no GEO SUMO o **dano 
 - **Expressões Dinâmicas**: 5 estados faciais diferentes (normal, ataque, dor, stunned, charging)
 - **Sistema de Diálogos**: 70+ frases contextuais com efeito typing e áudio procedural
 - **Multiplayer Local**: Suporta até 4 oponentes simultâneos controlados por IA
+- **Escala musical**: Todos os sons do jogo são gerados proceduralmente, por uma engine que combina notas músicais geradas proceduralmente, para todos os eventos do jogo.
 
 ---
 
@@ -601,7 +602,7 @@ Este projeto é open-source e está disponível sob a licença MIT.
 
 ## 👨‍💻 Desenvolvimento
 
-Desenvolvido com ❤️ usando tecnologia web moderna.
+Desenvolvido usando tecnologia web moderna.
 
 **Conceito Original**: Inspirado por Super Smash Bros e jogos de arena-fighter
 

@@ -92,11 +92,25 @@ body {
 
 .hp-label {
     position: absolute;
-    top: -14px;
+    top: -16px;
     left: 4px;
-    font-size: 0.6em;
-    letter-spacing: 0.12em;
+    font-size: 0.65em;
+    letter-spacing: 0.1em;
     color: #8ff;
+    white-space: nowrap;
+}
+
+.hp-lives {
+    display: inline;
+    font-size: 1.1em;
+    letter-spacing: 2px;
+    color: #f55;
+    text-shadow: 0 0 6px #f33;
+}
+
+.hp-lives .lost {
+    color: #444;
+    text-shadow: none;
 }
 
 .hp-fill {
@@ -997,6 +1011,12 @@ body {
     }
     .hp-container {
         max-width: 80px;
+    }
+    .hp-label {
+        font-size: 0.5em;
+    }
+    .hp-lives {
+        font-size: 0.9em;
     }
     
     /* Customize adaptations for tiny screens */

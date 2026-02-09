@@ -896,61 +896,124 @@ export function playNavigate() {
 }
 
 /**
- * Randomize button — CHAOTIC sound representing randomness!
- * Glitchy, unpredictable, fun.
+ * Randomize button — Sequential random melody!
+ * Each press generates a unique short tune from the pentatonic scale,
+ * notes played one after another (never simultaneously).
  */
 export function playRandomize() {
     init();
-    const t = now();
-    
-    // CHAOS BURST: Multiple random notes at once (controlled dissonance)
-    const randomNotes = [];
-    for (let i = 0; i < 5; i++) {
-        randomNotes.push(Math.floor(Math.random() * 12)); // Random notes from scale
+
+    // Generate 6 unique random notes from the scale (indices 0–24)
+    const noteCount = 6;
+    const notes = [];
+    for (let i = 0; i < noteCount; i++) {
+        notes.push(Math.floor(Math.random() * 15)); // Lower–mid range for musicality
     }
+
+    // Randomize waveforms for variety
+    const types = ['triangle', 'sine', 'square', 'sawtooth'];
+
+    // Play notes sequentially with clear spacing
+    const spacing = 0.065; // 65ms between notes — fast but distinct
+    notes.forEach((noteIdx, i) => {
+        const pan = (Math.random() - 0.5) * 1.2; // Subtle stereo wander
+        _tone({
+            freq: scaleNote(noteIdx),
+            type: types[Math.floor(Math.random() * types.length)],
+            dur: 0.07,
+            vol: 0.07,
+            attack: 0.002,
+            release: 0.035,
+            sustain: 0.3,
+            delay: i * spacing,
+            pan,
+            detune: Math.random() * 10 - 5, // ±5 cents — subtle
+        });
+    });
+
+    // Tiny noise tick between notes (dice texture)
+    _softNoise({
+        dur: 0.06,
+        vol: 0.04,
+        freq: 4000 + Math.random() * 1500,
+        q: 8,
+        delay: spacing * 2,
+    });
+
+    // Resolving "landing" note at the end — always D5 (tonic)
+    _tone({
+        freq: scaleNote(N.D5),
+        type: 'sine',
+        dur: 0.14,
+        vol: 0.09,
+        attack: 0.003,
+        release: 0.06,
+        sustain: 0.4,
+        delay: noteCount * spacing + 0.02,
+        vibrato: 3,
+        vibratoRate: 6,
+    });
+}
+
+/**
+ * Settings symphony — Plays a melodic motif representing game settings.
+ * Each setting category gets its own note pitched to reflect its value.
+ * Creates a pleasant harmony representing the randomized configuration.
+ * 
+ * @param {number} enemies - Number of enemies (1-4)
+ * @param {number} lives - Number of lives (1-5)
+ * @param {number} difficulty - Difficulty level (0-2)
+ */
+export function playSettingsSymphony(enemies, lives, difficulty) {
+    init();
     
-    // Play chaotic chord with random timing
-    randomNotes.forEach((noteIdx, i) => {
-        const randomDelay = Math.random() * 0.08; // 0-80ms spread
-        const randomPan = Math.random() * 2 - 1; // Full stereo field
-        const randomDetune = Math.random() * 30 - 15; // ±15 cents
-        
-        _tone({ 
-            freq: scaleNote(noteIdx), 
-            type: i % 2 === 0 ? 'square' : 'triangle', // Alternate waveforms
-            dur: 0.05, 
-            vol: 0.06,
-            attack: 0.001, 
-            release: 0.025, 
-            sustain: 0.2,
-            delay: randomDelay,
-            pan: randomPan,
-            detune: randomDetune
+    // Map settings to MIDI note indices (pentatonic scale)
+    // Enemies (1-4): Low register [D3, F3, G3, A3]
+    const enemyNotes = [N.D3, N.F3, N.G3, N.A3];
+    const enemyNote = enemyNotes[Math.min(enemies - 1, 3)];
+    
+    // Lives (1-5): Mid register [D4, F4, G4, A4, C5]
+    const livesNotes = [N.D4, N.F4, N.G4, N.A4, N.C5];
+    const livesNote = livesNotes[Math.min(lives - 1, 4)];
+    
+    // Difficulty (0-2): High register [G4, A4, D5]
+    const difficultyNotes = [N.G4, N.A4, N.D5];
+    const difficultyNote = difficultyNotes[Math.min(difficulty, 2)];
+    
+    // Play as ascending arpeggio (builds excitement)
+    const melody = [
+        enemyNote,       // Enemy count (bass)
+        livesNote,       // Lives (mid)
+        difficultyNote,  // Difficulty (treble)
+    ];
+    
+    // Ascending sequence with smooth legato
+    melody.forEach((noteIdx, i) => {
+        _tone({
+            freq: scaleNote(noteIdx),
+            type: i === 0 ? 'triangle' : (i === 1 ? 'sine' : 'square'),
+            dur: 0.15,
+            vol: 0.09,
+            attack: 0.003,
+            release: 0.08,
+            sustain: 0.5,
+            delay: i * 0.1,
+            pan: (i - 1) * 0.3, // Subtle stereo spread
         });
     });
     
-    // Glitchy noise burst (dice rolling sound)
-    _softNoise({ 
-        dur: 0.12, 
-        vol: 0.08, 
-        freq: 3000 + Math.random() * 2000, // Random frequency
-        q: 6,
-        delay: 0.02 
-    });
-    
-    // Final "land" note (resolution)
-    _tone({ 
-        freq: scaleNote(N.D5), 
-        type: 'sine', 
-        dur: 0.10, 
-        vol: 0.08,
-        attack: 0.001, 
-        release: 0.05, 
-        sustain: 0.3,
-        delay: 0.12,
-        vibrato: 4,
-        vibratoRate: 8
-    });
+    // Resolving chord at the end (all three notes together)
+    setTimeout(() => {
+        _chord(melody, {
+            type: 'sine',
+            dur: 0.20,
+            vol: 0.07,
+            attack: 0.005,
+            release: 0.12,
+            sustain: 0.5,
+            delay: 0,
+        });
+    }, 400); // After the melody
 }
 
 /**
@@ -1392,6 +1455,46 @@ export function playRingOut() {
     _melody([N.A4, N.G4, N.F4, N.D4, N.C4, N.A3, N.D3], {
         type: 'sine', dur: 0.06, vol: 0.10, spacing: 0.05,
         attack: 0.001, release: 0.04, sustain: 0.3,
+    });
+}
+
+/**
+ * Falling out — Long descending melody with whoosh.
+ * Plays during the fade-out animation when an entity is knocked off.
+ */
+export function playFallingOut() {
+    init();
+    // Slow descending pentatonic — eerie, dramatic fall
+    _melody([N.D5, N.C5, N.A4, N.G4, N.F4, N.D4, N.C4, N.A3, N.D3], {
+        type: 'sine', dur: 0.10, vol: 0.08, spacing: 0.08,
+        attack: 0.002, release: 0.06, sustain: 0.35,
+    });
+    // Whoosh noise (wind rushing past)
+    _softNoise({
+        dur: 0.6, vol: 0.06, freq: 800, q: 1.5, delay: 0.05,
+    });
+}
+
+/**
+ * Respawn — Ascending sparkle melody.
+ * Plays when entity reappears after cooldown.
+ */
+export function playRespawn() {
+    init();
+    // Ascending pentatonic — hopeful, "I'm back!" energy
+    _melody([N.D3, N.F3, N.A3, N.C4, N.D4, N.F4, N.A4, N.D5], {
+        type: 'triangle', dur: 0.06, vol: 0.09, spacing: 0.055,
+        attack: 0.002, release: 0.04, sustain: 0.4,
+    });
+    // Sparkle shimmer
+    _softNoise({
+        dur: 0.15, vol: 0.04, freq: 6000, q: 10, delay: 0.3,
+    });
+    // Resolving tonic chord at the end
+    _chord([N.D4, N.A4, N.D5], {
+        type: 'sine', dur: 0.18, vol: 0.06, spacing: 0.01,
+        attack: 0.005, release: 0.10, sustain: 0.4,
+        delay: 0.45,
     });
 }
 
