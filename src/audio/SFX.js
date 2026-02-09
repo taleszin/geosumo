@@ -820,40 +820,167 @@ function _updateMelodicProgression() {
 }
 
 // ═════════════════════════════════════════════════════════════
-// UI SFX — Menu navigation (musical clicks)
+// UI SFX — AAA Quality Musical Navigation (Pentatonic Variations)
 // ═════════════════════════════════════════════════════════════
 
+// State tracker for UI note variation
+let _lastUINote = 0;
+
+/**
+ * Generic UI click — cycles through pentatonic scale for variety.
+ * Each click plays a different note → musical progression!
+ */
 export function playClick() {
     init();
-    // D5 + light octave harmonic — crisp, musical click
-    _tone({ freq: scaleNote(N.D5), type: 'triangle', dur: 0.06, vol: 0.10,
-            attack: 0.001, release: 0.03, sustain: 0.3 });
-    _tone({ freq: scaleNote(N.D6), type: 'sine', dur: 0.04, vol: 0.04,
-            attack: 0.001, release: 0.02, sustain: 0.2, delay: 0.005 });
-}
-
-export function playNavigate() {
-    init();
-    // G4 → soft, warm navigation blip
-    _tone({ freq: scaleNote(N.G4), type: 'sine', dur: 0.09, vol: 0.09,
-            attack: 0.002, release: 0.04, sustain: 0.5 });
-}
-
-export function playRandomize() {
-    init();
-    // Playful descending arpeggio: D5 → A4 → F4 (scale degrees)
-    _melody([N.D5, N.A4, N.F4], {
-        type: 'triangle', dur: 0.07, vol: 0.08, spacing: 0.07,
-        attack: 0.001, release: 0.04, sustain: 0.4,
+    
+    // Cycle through pentatonic notes (D4, F4, G4, A4, C5, D5)
+    const clickNotes = [N.D4, N.F4, N.G4, N.A4, N.C5, N.D5];
+    _lastUINote = (_lastUINote + 1) % clickNotes.length;
+    const note = clickNotes[_lastUINote];
+    
+    // Main note (triangle for warmth)
+    _tone({ 
+        freq: scaleNote(note), 
+        type: 'triangle', 
+        dur: 0.08, 
+        vol: 0.11,
+        attack: 0.001, 
+        release: 0.04, 
+        sustain: 0.35,
+        pan: (Math.random() * 0.3 - 0.15) // Subtle stereo variation
+    });
+    
+    // Harmonic shimmer (octave + fifth)
+    _tone({ 
+        freq: scaleNote(note + 5), 
+        type: 'sine', 
+        dur: 0.05, 
+        vol: 0.04,
+        attack: 0.001, 
+        release: 0.025, 
+        sustain: 0.2, 
+        delay: 0.008 
     });
 }
 
+/**
+ * Navigation between menu items — smooth ascending gesture.
+ */
+export function playNavigate() {
+    init();
+    
+    // Quick 2-note ascension (feels like "moving up")
+    const startNote = N.G4;
+    const endNote = N.A4;
+    
+    _tone({ 
+        freq: scaleNote(startNote), 
+        type: 'sine', 
+        dur: 0.06, 
+        vol: 0.10,
+        attack: 0.001, 
+        release: 0.03, 
+        sustain: 0.4 
+    });
+    
+    _tone({ 
+        freq: scaleNote(endNote), 
+        type: 'sine', 
+        dur: 0.08, 
+        vol: 0.09,
+        attack: 0.001, 
+        release: 0.04, 
+        sustain: 0.5,
+        delay: 0.04 
+    });
+}
+
+/**
+ * Randomize button — CHAOTIC sound representing randomness!
+ * Glitchy, unpredictable, fun.
+ */
+export function playRandomize() {
+    init();
+    const t = now();
+    
+    // CHAOS BURST: Multiple random notes at once (controlled dissonance)
+    const randomNotes = [];
+    for (let i = 0; i < 5; i++) {
+        randomNotes.push(Math.floor(Math.random() * 12)); // Random notes from scale
+    }
+    
+    // Play chaotic chord with random timing
+    randomNotes.forEach((noteIdx, i) => {
+        const randomDelay = Math.random() * 0.08; // 0-80ms spread
+        const randomPan = Math.random() * 2 - 1; // Full stereo field
+        const randomDetune = Math.random() * 30 - 15; // ±15 cents
+        
+        _tone({ 
+            freq: scaleNote(noteIdx), 
+            type: i % 2 === 0 ? 'square' : 'triangle', // Alternate waveforms
+            dur: 0.05, 
+            vol: 0.06,
+            attack: 0.001, 
+            release: 0.025, 
+            sustain: 0.2,
+            delay: randomDelay,
+            pan: randomPan,
+            detune: randomDetune
+        });
+    });
+    
+    // Glitchy noise burst (dice rolling sound)
+    _softNoise({ 
+        dur: 0.12, 
+        vol: 0.08, 
+        freq: 3000 + Math.random() * 2000, // Random frequency
+        q: 6,
+        delay: 0.02 
+    });
+    
+    // Final "land" note (resolution)
+    _tone({ 
+        freq: scaleNote(N.D5), 
+        type: 'sine', 
+        dur: 0.10, 
+        vol: 0.08,
+        attack: 0.001, 
+        release: 0.05, 
+        sustain: 0.3,
+        delay: 0.12,
+        vibrato: 4,
+        vibratoRate: 8
+    });
+}
+
+/**
+ * Start/Begin button — triumphant fanfare!
+ */
 export function playStart() {
     init();
-    // Ascending power chord: D4 + A4 (fifth)
-    _chord([N.D4, N.A4], {
-        type: 'triangle', dur: 0.12, vol: 0.12,
-        attack: 0.002, release: 0.06, sustain: 0.5,
+    
+    // Power chord: D4 + A4 + D5 (root + fifth + octave)
+    _chord([N.D4, N.A4, N.D5], {
+        type: 'sawtooth', 
+        dur: 0.15, 
+        vol: 0.14,
+        attack: 0.003, 
+        release: 0.08, 
+        sustain: 0.5,
+        filterFreq: 1800,
+        filterQ: 3
+    });
+    
+    // Bright accent on top (fanfare)
+    _tone({ 
+        freq: scaleNote(N.F5), 
+        type: 'triangle', 
+        dur: 0.12, 
+        vol: 0.07,
+        attack: 0.001, 
+        release: 0.06, 
+        sustain: 0.4, 
+        delay: 0.05 
     });
 }
 

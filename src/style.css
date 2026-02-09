@@ -744,10 +744,14 @@ body {
     background: rgba(50, 25, 70, 0.75);
     border: 2px solid rgba(200, 100, 255, 0.3);
     color: #d8b;
-    font-size: 0.8em;
+    font-size: 1.5em; /* Emoji maior */
     font-weight: 700;
-    letter-spacing: 0.15em;
-    padding: 12px 28px;
+    padding: 12px; /* Padding igual em todos os lados = botão quadrado */
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -959,10 +963,11 @@ body {
     }
     
     #cust-random-btn {
-        font-size: 0.7em;
-        padding: 10px 24px;
-        width: 100%;
-        max-width: 280px;
+        font-size: 1.3em; /* Emoji menor no mobile */
+        padding: 10px;
+        width: 44px;
+        height: 44px;
+        max-width: unset; /* Remove max-width anterior */
     }
     
     #cust-showcase-hint {
@@ -1043,8 +1048,10 @@ body {
     }
     
     #cust-random-btn {
-        font-size: 0.65em;
-        padding: 8px 20px;
+        font-size: 1.2em; /* Emoji compacto */
+        padding: 8px;
+        width: 40px;
+        height: 40px;
     }
     
     #cust-title {
