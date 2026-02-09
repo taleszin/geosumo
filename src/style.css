@@ -696,6 +696,23 @@ body {
 #punch-zones > div .punch-label { font-size: 0.65em; letter-spacing: 0.12em; color: rgba(255,255,255,0.75); margin-top:6px; }
 #punch-zones > div.active { background: rgba(255,255,255,0.06); transform: scale(0.98); }
 
+/* ── Botão de Charge (Mobile) ───────────────────────────── */
+#charge-button {
+    transition: transform 0.1s ease;
+    filter: drop-shadow(0 4px 12px rgba(0, 255, 255, 0.4));
+}
+
+#charge-button:active {
+    transform: scale(0.95) !important;
+}
+
+/* Ocultar charge button no desktop */
+@media (min-width: 700px) {
+    #charge-button {
+        display: none !important;
+    }
+}
+
 @media (max-width:700px) {
     #joystick-base { left: 70px; bottom: 100px; }
     #punch-zones > div { padding-bottom: 90px; }

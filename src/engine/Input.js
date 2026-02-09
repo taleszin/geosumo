@@ -144,9 +144,29 @@ function _createTouchOverlay() {
     $punchLeft  = _pl;
     $punchRight = _pr;
 
+    // Charge button (mobile only) - circular button with SVG progress ring
+    const $chargeBtn = document.createElement('div');
+    $chargeBtn.id = 'charge-button';
+    $chargeBtn.style.cssText = 'position:fixed;bottom:30px;right:30px;width:80px;height:80px;pointer-events:auto;';
+    $chargeBtn.innerHTML = `
+        <svg width="80" height="80" style="position:absolute;top:0;left:0;transform:rotate(-90deg);">
+            <circle cx="40" cy="40" r="35" fill="none" stroke="rgba(0,255,255,0.2)" stroke-width="6"/>
+            <circle id="charge-progress" cx="40" cy="40" r="35" fill="none" stroke="#00ffff" stroke-width="6" 
+                    stroke-dasharray="220" stroke-dashoffset="220" stroke-linecap="round"
+                    style="filter:drop-shadow(0 0 8px #00ffff);"/>
+        </svg>
+        <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+                    font:bold 12px monospace;color:#0ff;text-shadow:0 0 8px #0ff;">CHARGE</div>
+    `;
+    
     $touchOverlay.appendChild($joystickBase);
     $touchOverlay.appendChild($punchZones);
+    $touchOverlay.appendChild($chargeBtn);
     document.body.appendChild($touchOverlay);
+    
+    // Charge button refs
+    window._$chargeButton = $chargeBtn;
+    window._$chargeProgress = document.getElementById('charge-progress');
 
     // Expose elements for touch handlers
     $punchZones = $punchZones;
@@ -238,6 +258,23 @@ function _onTouchStart(e) {
     if (phase === 'customize') return; // let native taps through
 
     e.preventDefault();
+    
+    // Check if touching charge button
+    const $chargeBtn = window._$chargeButton;
+    if ($chargeBtn && phase === 'fight') {
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            const rect = $chargeBtn.getBoundingClientRect();
+            if (t.clientX >= rect.left && t.clientX <= rect.right &&
+                t.clientY >= rect.top && t.clientY <= rect.bottom) {
+                state.charge = true;
+                $chargeBtn.dataset.touchId = t.identifier;
+                $chargeBtn.style.transform = 'scale(0.95)';
+                return; // consume this touch
+            }
+        }
+    }
+    
     const halfW = window.innerWidth * 0.5;
 
     for (let i = 0; i < e.changedTouches.length; i++) {
@@ -347,6 +384,19 @@ function _onTouchEnd(e) {
     const phase = _gamePhaseGetter ? _gamePhaseGetter() : 'fight';
     if (phase === 'customize') return;
     e.preventDefault();
+    
+    // Check if releasing charge button
+    const $chargeBtn = window._$chargeButton;
+    if ($chargeBtn && $chargeBtn.dataset.touchId) {
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (t.identifier == $chargeBtn.dataset.touchId) {
+                state.charge = false;
+                delete $chargeBtn.dataset.touchId;
+                $chargeBtn.style.transform = 'scale(1)';
+            }
+        }
+    }
 
     for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];

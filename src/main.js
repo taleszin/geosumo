@@ -97,6 +97,15 @@ let _lastCountdownStage = null;
 let edgeWarning = 0; // 0..1, intensidade do aviso de borda
 let _lastEdgeWarn = 0; // usado para evitar spam de SFX
 
+// Floating damage numbers
+let floatingNumbers = []; // Array de {x, y, z, damage, life, entity}
+
+// Combo system
+let playerComboCount = 0;
+let lastPlayerHitTime = 0;
+const COMBO_WINDOW = 2000; // 2 segundos para manter combo
+const COMBO_BONUS = [1.0, 1.1, 1.2, 1.3]; // Multiplicadores por combo (0, 2, 3, 4+ hits)
+
 // ── DOM refs ──────────────────────────────────────────────────
 const $canvas       = /** @type {HTMLCanvasElement} */ (document.getElementById('glcanvas'));
 const $roundInfo    = document.getElementById('round-info');
@@ -302,11 +311,133 @@ function _resize2DCanvas() {
     _2dCanvas.height = window.innerHeight;
 }
 
+// ═════════════════════════════════════════════════════════════
+// Floating Damage Numbers
+// ═════════════════════════════════════════════════════════════
+
+function _spawnDamageNumber(entity, damage, isCombo = false) {
+    floatingNumbers.push({
+        entity: entity,
+        damage: Math.round(damage * 10) / 10, // 1 decimal
+        life: 1.0, // 0..1, decreases over time
+        offsetY: 0, // floats upward
+        isCombo: isCombo,
+    });
+}
+
+function _updateFloatingNumbers(dt) {
+    floatingNumbers = floatingNumbers.filter(num => {
+        num.life -= dt * 1.5; // 0.66s duration
+        num.offsetY += dt * 60; // float up 60 pixels/sec
+        return num.life > 0;
+    });
+}
+
+function _renderFloatingNumbers() {
+    if (!_2dCanvas || !_2dCtx) return;
+    
+    const viewMat = camera.viewMatrix;
+    const projMat = getProj();
+    
+    floatingNumbers.forEach(num => {
+        // Position above entity's head
+        const headY = num.entity.pos[1] + (num.entity.size * 0.8);
+        
+        const screenPos = project3DTo2D(
+            num.entity.pos[0],
+            headY,
+            num.entity.pos[2],
+            viewMat,
+            projMat,
+            _2dCanvas.width,
+            _2dCanvas.height
+        );
+        
+        if (!screenPos) return;
+        
+        const x = screenPos.x;
+        const y = screenPos.y - num.offsetY;
+        
+        // Color based on damage amount
+        let color;
+        if (num.damage < 3) color = '#ffffff';
+        else if (num.damage < 8) color = '#ffff00';
+        else if (num.damage < 15) color = '#ff8800';
+        else color = '#ff0000';
+        
+        // Combo gets special color
+        if (num.isCombo) color = '#00ffff';
+        
+        const alpha = num.life * num.life; // ease out
+        const scale = 1.0 + (1.0 - num.life) * 0.3; // slightly grow
+        
+        _2dCtx.save();
+        _2dCtx.globalAlpha = alpha;
+        _2dCtx.font = `bold ${Math.floor(24 * scale)}px monospace`;
+        _2dCtx.fillStyle = color;
+        _2dCtx.strokeStyle = 'rgba(0,0,0,0.8)';
+        _2dCtx.lineWidth = 4;
+        _2dCtx.textAlign = 'center';
+        
+        const text = `+${num.damage.toFixed(1)}%`;
+        _2dCtx.strokeText(text, x, y);
+        _2dCtx.fillText(text, x, y);
+        _2dCtx.restore();
+    });
+}
+
+function _renderComboDisplay() {
+    if (!_2dCanvas || !_2dCtx || playerComboCount < 2) return;
+    
+    const timeSinceHit = performance.now() - lastPlayerHitTime;
+    const age = timeSinceHit / 1000; // seconds
+    if (age > 1.5) return; // fade out after 1.5s
+    
+    const alpha = age < 0.3 ? 1.0 : Math.max(0, 1.0 - (age - 0.3) / 1.2);
+    const scale = age < 0.15 ? (1.0 + (0.15 - age) * 2.0) : 1.0; // pop in
+    
+    _2dCtx.save();
+    _2dCtx.globalAlpha = alpha;
+    
+    const cx = _2dCanvas.width * 0.5;
+    const cy = _2dCanvas.height * 0.25;
+    
+    // Main combo text
+    _2dCtx.font = `bold ${Math.floor(48 * scale)}px monospace`;
+    _2dCtx.fillStyle = '#00ffff';
+    _2dCtx.strokeStyle = 'rgba(0,0,0,0.9)';
+    _2dCtx.lineWidth = 6;
+    _2dCtx.textAlign = 'center';
+    
+    const text = `${playerComboCount} HIT COMBO!`;
+    _2dCtx.strokeText(text, cx, cy);
+    _2dCtx.fillText(text, cx, cy);
+    
+    // Bonus indicator
+    const bonusIdx = Math.min(playerComboCount - 1, COMBO_BONUS.length - 1);
+    const bonusMult = COMBO_BONUS[bonusIdx];
+    if (bonusMult > 1.0) {
+        _2dCtx.font = `bold ${Math.floor(24 * scale)}px monospace`;
+        _2dCtx.fillStyle = '#ffff00';
+        const bonusText = `×${bonusMult.toFixed(1)} DAMAGE`;
+        _2dCtx.strokeText(bonusText, cx, cy + 40);
+        _2dCtx.fillText(bonusText, cx, cy + 40);
+    }
+    
+    _2dCtx.restore();
+}
+
 function _renderDialogBubbles() {
     if (!_2dCanvas || !_2dCtx) return;
     
     // Limpar canvas
     _2dCtx.clearRect(0, 0, _2dCanvas.width, _2dCanvas.height);
+    
+    // Render floating damage numbers first (below bubbles)
+    _renderFloatingNumbers();
+    
+    // Render combo display
+    _renderComboDisplay();
     
     // Projetar posição 3D para 2D usando matrizes corretas
     const allEntities = player ? [player, ...enemies] : enemies;
@@ -478,6 +609,26 @@ function _updateFight(dt) {
         setExpression(player, EXPR_ATTACK, 20);
         SFX.playDash(moveResult.dashPower);
     }
+    
+    // Update floating damage numbers
+    _updateFloatingNumbers(dt * slowMo);
+    
+    // Update charge button progress ring (mobile)
+    if (isTouchActive() && window._$chargeProgress) {
+        const progress = player.chargeAmount || 0;
+        const dashLength = 220; // SVG circle circumference
+        const offset = dashLength - (dashLength * progress);
+        window._$chargeProgress.style.strokeDashoffset = offset;
+        
+        // Glow when ready
+        if (player.chargeReady) {
+            window._$chargeProgress.style.stroke = '#ffff00';
+            window._$chargeProgress.style.filter = 'drop-shadow(0 0 12px #ffff00)';
+        } else {
+            window._$chargeProgress.style.stroke = '#00ffff';
+            window._$chargeProgress.style.filter = 'drop-shadow(0 0 8px #00ffff)';
+        }
+    }
 
     // 2. Atualizar todos os inimigos e suas IAs
     enemies.forEach((enemy, idx) => {
@@ -512,14 +663,43 @@ function _updateFight(dt) {
 
         // Expressões dos hits do PLAYER
         if (hitEL || hitER) {
-            const force = Math.max(hitEL || 0, hitER || 0);
+            const hitData = hitEL || hitER;
+            const force = hitData.force || hitData; // backward compat
+            const damage = hitData.damage || 0;
+            
+            // COMBO SYSTEM
+            const now = performance.now();
+            if (now - lastPlayerHitTime < COMBO_WINDOW) {
+                playerComboCount++;
+            } else {
+                playerComboCount = 1; // reset combo
+            }
+            lastPlayerHitTime = now;
+            
+            // Apply combo bonus to damage (retroactively increase enemy's damage)
+            const bonusIdx = Math.min(playerComboCount - 1, COMBO_BONUS.length - 1);
+            const bonusMult = COMBO_BONUS[bonusIdx];
+            if (bonusMult > 1.0) {
+                const bonusDamage = damage * (bonusMult - 1.0);
+                enemy.damage += bonusDamage;
+            }
+            
+            // Spawn floating damage number
+            _spawnDamageNumber(enemy, damage * bonusMult, bonusMult > 1.0);
+            
+            // Combo SFX
+            if (playerComboCount >= 2) {
+                SFX.playCombo(playerComboCount);
+                // Extra shake for combos
+                camera.addShake(force * (1.0 + playerComboCount * 0.2));
+            }
             if (force > 0.3) {
                 setExpression(enemy, EXPR_STUNNED, 40);
             } else {
                 setExpression(enemy, EXPR_HURT, 20);
             }
             setExpression(player, EXPR_ATTACK, 15);
-            SFX.playImpact(force);
+            if (playerComboCount < 2) SFX.playImpact(force); // combo SFX overrides impact
             Haptic.impactPulse(force);
             maxHitForce = Math.max(maxHitForce, force);
             
@@ -535,7 +715,15 @@ function _updateFight(dt) {
             }
         }
         if (hitPL || hitPR) {
-            const force = Math.max(hitPL || 0, hitPR || 0);
+            const hitData = hitPL || hitPR;
+            const force = hitData.force || hitData;
+            const damage = hitData.damage || 0;
+            
+            // Reset player combo when hit
+            playerComboCount = 0;
+            
+            // Spawn floating damage number on player
+            _spawnDamageNumber(player, damage, false);
             if (force > 0.3) {
                 setExpression(player, EXPR_STUNNED, 40);
             } else {
@@ -583,7 +771,11 @@ function _updateFight(dt) {
 
             // Expressões nos hits entre inimigos
             if (hitI_L || hitI_R) {
-                const force = Math.max(hitI_L || 0, hitI_R || 0);
+                const hitData = hitI_L || hitI_R;
+                const force = hitData.force || hitData;
+                const damage = hitData.damage || 0;
+                
+                _spawnDamageNumber(enemies[j], damage, false);
                 if (force > 0.3) {
                     setExpression(enemies[j], EXPR_STUNNED, 40);
                 } else {
@@ -594,7 +786,11 @@ function _updateFight(dt) {
                 maxHitForce = Math.max(maxHitForce, force);
             }
             if (hitJ_L || hitJ_R) {
-                const force = Math.max(hitJ_L || 0, hitJ_R || 0);
+                const hitData = hitJ_L || hitJ_R;
+                const force = hitData.force || hitData;
+                const damage = hitData.damage || 0;
+                
+                _spawnDamageNumber(enemies[i], damage, false);
                 if (force > 0.3) {
                     setExpression(enemies[i], EXPR_STUNNED, 40);
                 } else {

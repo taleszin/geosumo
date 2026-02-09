@@ -254,7 +254,7 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
         attacker._justCharged = 0;
         attacker[cdKey] = HIT_COOLDOWN;
 
-        return impactForce;
+        return { force: impactForce, damage: damageAdd };
     }
 
     // ── APLICAR IMPULSO ──────────────────────────────────
@@ -307,6 +307,10 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
     let damageAdd = impactForce * DAMAGE_PER_FORCE;
     // Player recebe 25% menos dano (mais tolerante)
     if (defender.isPlayer) damageAdd *= 0.75;
+    
+    // Armazena o dano antes de aplicar para retornar depois
+    const finalDamage = damageAdd;
+    
     defender.damage += damageAdd; // Acumula % de dano (Smash Bros style)
     // ── HITSTUN (atordoamento após hit - estilo Smash Bros) ────────────────────────
     // Quanto mais dano, mais tempo atordoado
@@ -335,7 +339,7 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
     // Cooldown
     attacker[cdKey] = HIT_COOLDOWN;
 
-    return impactForce; // retorna a força para triggerar expressões
+    return { force: impactForce, damage: finalDamage }; // retorna força E dano
 }
 
 // ── Body-vs-body (separação + SUMO PUSH) ─────────────────────

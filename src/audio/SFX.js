@@ -242,6 +242,20 @@ export function update(dt) {
     // nothing for now
 }
 
+// Combo sound (pitch increases with combo count)
+export function playCombo(comboCount) {
+    init();
+    const basePitch = 600;
+    const pitch = basePitch + Math.min(comboCount * 150, 900);
+    const volume = 0.15 + Math.min(comboCount * 0.03, 0.15);
+    
+    // Quick ascending chirp
+    _playOsc({type:'sine', freq:pitch * 0.8, dur:0.08, gain:volume * 0.6});
+    setTimeout(() => {
+        _playOsc({type:'sine', freq:pitch, dur:0.1, gain:volume});
+    }, 50);
+}
+
 // Expõe AudioContext e masterGain para outros sistemas (DialogSystem)
 export function getAudioContext() {
     return ctx;
