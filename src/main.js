@@ -782,6 +782,7 @@ function _updateCountdown(dt) {
     if (countdownTimer <= -0.5) {
         phase = 'fight';
         $stateScreen.style.display = 'none';
+        SFX.setAmbientLevel(0.3); // ambient pad ON during fight
     }
 
     // Camera segue durante countdown
@@ -804,6 +805,18 @@ function _updateFight(dt) {
     // Movement SFX level
     const hSpeed = Math.sqrt(player.vel[0] ** 2 + player.vel[2] ** 2);
     SFX.setMovementLevel(Math.min(1, hSpeed / 0.9));
+    
+    // Musical movement notes — mapped to WASD direction
+    if (hSpeed > 0.08 && player.onGround) {
+        const mx = input.moveX || 0;
+        const mz = input.moveZ || 0;
+        let dirKey = '';
+        if (mz > 0.3) dirKey += 'w';
+        if (mz < -0.3) dirKey += 's';
+        if (mx > 0.3) dirKey += 'a';
+        if (mx < -0.3) dirKey += 'd';
+        if (dirKey) SFX.playMoveNote(dirKey, Math.min(1, hSpeed / 0.6));
+    }
     
     // TANQUE power-up: camera treme ao andar (passos pesados)
     if (player._tankShake && hSpeed > 0.1 && player.onGround) {
@@ -1109,6 +1122,8 @@ function _updateFight(dt) {
             showStateScreen('DERROTA', `Eliminado no round ${round}`,
                 '[ TOQUE OU CLIQUE PARA RECOMEÇAR ]', '#f22');
             SFX.playLose();
+            SFX.setAmbientLevel(0); // pad OFF
+            SFX.setMovementLevel(0);
             return; // não continuar update
         }
     }
@@ -1152,7 +1167,8 @@ function _updateFight(dt) {
         showStateScreen('VITÓRIA!', `Round ${round} completado — ${numEnemies} adversários derrotados!`,
             '[ TOQUE OU CLIQUE PARA CONTINUAR ]', '#0f0');
         SFX.playWin();
-        // Diálogo de vitória do player
+        SFX.setAmbientLevel(0); // pad OFF
+        SFX.setMovementLevel(0);
         if (player && Math.random() < 0.8) showDialog(player, 'victory');
     }
 
@@ -1482,6 +1498,7 @@ function startCountdown() {
     // Se estamos em modo de desenvolvimento/teste, pule o countdown
     if (typeof DEV !== 'undefined' && DEV.hideRound) {
         phase = 'fight';
+        SFX.setAmbientLevel(0.3); // ambient pad ON
         $hud.style.display = 'block';
         $stateScreen.style.display = 'none';
         $roundNum.textContent = round;
