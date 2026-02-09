@@ -9,6 +9,7 @@
  */
 import { lerp, clamp } from '../engine/MathUtils.js';
 import { chargeUp, releaseCharge } from './Physics.js';
+import { getBuffMultipliers } from './PowerUp.js';
 
 // ── Constantes de movimento ──────────────────────────────────
 const GROUND_FORCE = 0.045;     // era 0.035 — mais responsivo
@@ -24,7 +25,8 @@ const CHARGE_SLOW  = 0.4;       // multiplica velocidade durante charge (frenage
  * @returns {{ charging: boolean, dashPower: number }} feedback para main.js
  */
 export function updatePlayerMovement(player, input, camYaw) {
-    const force = player.onGround ? GROUND_FORCE : AIR_FORCE;
+    const buffMults = getBuffMultipliers(player);
+    const force = (player.onGround ? GROUND_FORCE : AIR_FORCE) * buffMults.speedMult * buffMults.forceMult;
     let result = { charging: false, dashPower: 0 };
 
     // Input normalizado (moveX, moveZ já vem de -1..1)
@@ -177,8 +179,11 @@ export function updatePlayerArms(player, input, isTouchMode = false) {
 
     // ── ANIMAÇÃO COM FÍSICA ─────────────────────────────
     // Mobile: retração muito rápida; PC: system atual
-    const rotSpeed = isTouchMode ? 0.45 : 0.25;
-    const extSpeed = isTouchMode ? 0.35 : 0.18;
+    // Power-up NITRO: braços mais rápidos
+    const buffMults = getBuffMultipliers(player);
+    const armMult = buffMults.armSpeedMult;
+    const rotSpeed = (isTouchMode ? 0.45 : 0.25) * armMult;
+    const extSpeed = (isTouchMode ? 0.35 : 0.18) * armMult;
     _animateArmWithPhysics(armL, rotSpeed, extSpeed, isTouchMode);
     _animateArmWithPhysics(armR, rotSpeed, extSpeed, isTouchMode);
 }

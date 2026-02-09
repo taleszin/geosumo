@@ -242,6 +242,61 @@ export function update(dt) {
     // nothing for now
 }
 
+// ── Power-Up SFX ─────────────────────────────────────────
+
+export function playPowerUpTank() {
+    init();
+    // Bigorna caindo: impacto grave + ressonância metálica
+    _playOsc({type:'sawtooth', freq:80, dur:0.4, gain:0.3, attack:0.001, release:0.35, filter:{type:'lowpass', freq:300}});
+    _playNoise({dur:0.15, gain:0.4, filterFreq:500});
+    setTimeout(() => _playOsc({type:'sine', freq:600, dur:0.3, gain:0.12, attack:0.001, release:0.25}), 80);
+    setTimeout(() => _playOsc({type:'sine', freq:1200, dur:0.15, gain:0.06, attack:0.001, release:0.1}), 120);
+}
+
+export function playPowerUpNitro() {
+    init();
+    // Turbina elétrica: sweep ascendente
+    const t = now();
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(200, t);
+    o.frequency.exponentialRampToValueAtTime(2000, t + 0.3);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.2, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass'; f.frequency.value = 1500;
+    o.connect(f); f.connect(g); g.connect(master);
+    o.start(t); o.stop(t + 0.4);
+    _playOsc({type:'sine', freq:1800, dur:0.1, gain:0.15, attack:0.001, release:0.08});
+}
+
+export function playPowerUpTitan() {
+    init();
+    // Grave profundo: "BWOOOM"
+    _playOsc({type:'sine', freq:60, dur:0.6, gain:0.35, attack:0.01, release:0.5});
+    _playOsc({type:'sine', freq:90, dur:0.4, gain:0.2, attack:0.05, release:0.3});
+    setTimeout(() => _playOsc({type:'triangle', freq:120, dur:0.3, gain:0.12, attack:0.01, release:0.2}), 100);
+}
+
+export function playPowerUpImpact() {
+    init();
+    // Engatilhar arma: click mecânico + tom tenso
+    _playNoise({dur:0.06, gain:0.3, filterFreq:3000});
+    setTimeout(() => _playNoise({dur:0.04, gain:0.25, filterFreq:4000}), 80);
+    setTimeout(() => _playOsc({type:'sine', freq:400, dur:0.15, gain:0.12, attack:0.001, release:0.12}), 120);
+    setTimeout(() => _playOsc({type:'sine', freq:800, dur:0.08, gain:0.08, attack:0.001, release:0.06}), 160);
+}
+
+export function playPowerUpSpawn() {
+    init();
+    // Som de materialização: brilhante e convidativo
+    _playOsc({type:'sine', freq:500, dur:0.15, gain:0.1, attack:0.001, release:0.12});
+    setTimeout(() => _playOsc({type:'sine', freq:700, dur:0.12, gain:0.08}), 100);
+    setTimeout(() => _playOsc({type:'sine', freq:900, dur:0.1, gain:0.06}), 200);
+}
+
 // Combo sound (pitch increases with combo count)
 export function playCombo(comboCount) {
     init();

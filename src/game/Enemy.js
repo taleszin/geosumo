@@ -13,6 +13,7 @@
 import { lerp, clamp, len2D } from '../engine/MathUtils.js';
 import { chargeUp, releaseCharge } from './Physics.js';
 import { setExpression, EXPR_ATTACK, EXPR_CHARGING } from './Entity.js';
+import { getActiveItem } from './PowerUp.js';
 
 const AI_APPROACH = 0;
 const AI_CIRCLE   = 1;
@@ -114,6 +115,19 @@ export class EnemyAI {
             const toCenterZ = -e.pos[2] / (enemyEdge || 1);
             e.vel[0] += toCenterX * moveForce * 4.0;
             e.vel[2] += toCenterZ * moveForce * 4.0;
+        }
+
+        // ── POWER-UP ATTRACTION ──────────────────────────
+        // Se item disponível no ringue, chance de ir buscar
+        const puItem = getActiveItem();
+        if (puItem && Math.random() < 0.4) { // 40% do tempo, move em direção ao item
+            const pdx = puItem.pos[0] - e.pos[0];
+            const pdz = puItem.pos[2] - e.pos[2];
+            const pDist = Math.sqrt(pdx * pdx + pdz * pdz) || 1;
+            if (pDist < arenaRadius * 0.8) { // só se item não está muito longe na borda
+                e.vel[0] += (pdx / pDist) * moveForce * 1.5;
+                e.vel[2] += (pdz / pDist) * moveForce * 1.5;
+            }
         }
 
         // Comportamento por estado

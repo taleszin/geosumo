@@ -13,6 +13,7 @@ import { clamp, len2D } from '../engine/MathUtils.js';
 import * as SFX from '../audio/SFX.js';
 import * as Haptic from '../engine/Haptic.js';
 import { setExpression, EXPR_STUNNED } from './Entity.js';
+import { getBuffMultipliers } from './PowerUp.js';
 
 // ── Constantes de física ─────────────────────────────────────
 export const GRAVITY        = 0.018;
@@ -62,7 +63,10 @@ export function updateEntityPhysics(ent) {
     }
 
     // Atrito (menos atrito se carregando — para o charge deslizar mais)
+    const buffMults = getBuffMultipliers(ent);
     let friction = ent.onGround ? GROUND_FRICTION : AIR_FRICTION;
+    // Power-up friction override (TANQUE)
+    if (buffMults.frictionOverride !== null) friction = buffMults.frictionOverride;
     if (ent.isCharging) friction = 0.92; // menos atrito durante charge
     // Durante hitstun, MUITO mais atrito (difícil recuperar controle)
     if (ent.hitstunTimer > 0) {
@@ -200,6 +204,10 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
         + armSpeed * ARM_SPEED_MULT;
     impactForce *= Math.sqrt(massRatio);
 
+    // Power-up: multiplicador de impacto
+    const attackerBuffs = getBuffMultipliers(attacker);
+    impactForce *= attackerBuffs.impactMult;
+
     // Bônus de charge (se o atacante estava carregando)
     if (attacker.chargeAmount > 0.5) {
         impactForce *= (1.0 + attacker.chargeAmount * CHARGE_IMPACT_MULT);
@@ -294,9 +302,10 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
 
     // Defensor é empurrado
     defender.vel[0] += impulseX;
-    // Lift MUITO reduzido - foco no knockback horizontal!
-    const liftAmount = impactForce * LIFT_FORCE * 0.3; // MUITO reduzido
-    defender.vel[1] += clamp(liftAmount, 0, 0.15); // máximo muito baixo
+    // Lift — Power-up IMPACTO amplifica o lift
+    const liftMult = attackerBuffs.liftMult;
+    const liftAmount = impactForce * LIFT_FORCE * 0.3 * liftMult;
+    defender.vel[1] += clamp(liftAmount, 0, 0.15 * liftMult); // IMPACTO permite lift maior
     defender.vel[2] += impulseZ;
 
     // Atacante recua (Newton 3ª lei, moderada)

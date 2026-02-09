@@ -40,6 +40,9 @@ import { ARENA_RADIUS, checkArenaEdge, setArenaRadius,
 import { drawEntity, drawEntityPreview }                 from './game/EntityRenderer.js';
 import { showDialog, updateDialogs, clearAllDialogs,
          initDialogAudio, getDialog }                    from './game/DialogSystem.js';
+import { updatePowerUps, resetPowerUps, getActiveItem,
+         getEntityBuff, getPowerUpDef,
+         PU_TANK, PU_NITRO, PU_TITAN, PU_IMPACT }       from './game/PowerUp.js';
 
 // ── Customization ─────────────────────────────────────────────
 import { SHAPE_IDS, COLOR_IDS, EYE_IDS, MOUTH_IDS,
@@ -232,13 +235,22 @@ function tick(now) {
 
         if (player && enemies.length > 0) {
             useObjShader();
+            
+            // Renderizar power-up item na arena
+            _renderPowerUpItem(gameTime);
+            
             drawShadow(player);
             enemies.forEach(enemy => drawShadow(enemy));
+            
+            // Renderizar buff auras ANTES das entidades
+            _renderBuffAura(player, gameTime);
+            enemies.forEach(enemy => _renderBuffAura(enemy, gameTime));
+            
             drawEntity(player, gameTime);
             enemies.forEach(enemy => drawEntity(enemy, gameTime));
             endObjShader();
             
-            // Renderizar balões de fala (2D overlay)
+            // Renderizar balões de fala + power-up HUD (2D overlay)
             _renderDialogBubbles();
         }
     }
@@ -379,7 +391,7 @@ function _renderFloatingNumbers() {
         _2dCtx.lineWidth = 4;
         _2dCtx.textAlign = 'center';
         
-        const text = `+${num.damage.toFixed(1)}%`;
+        const text = num.powerUpName ? num.powerUpName : `+${num.damage.toFixed(1)}%`;
         _2dCtx.strokeText(text, x, y);
         _2dCtx.fillText(text, x, y);
         _2dCtx.restore();
@@ -427,6 +439,203 @@ function _renderComboDisplay() {
     _2dCtx.restore();
 }
 
+// ═════════════════════════════════════════════════════════════
+// Power-Up Rendering (3D items + buff auras + HUD indicator)
+// ═════════════════════════════════════════════════════════════
+
+/**
+ * Renderiza o item de power-up flutuante na arena (3D, no shader de objetos).
+ */
+function _renderPowerUpItem(gameTime) {
+    const item = getActiveItem();
+    if (!item) return;
+
+    const def = getPowerUpDef(item.type);
+    const mv = getMV();
+
+    // Animações: flutuar, girar, pulsar
+    const bobY = GROUND_Y + 1.8 + Math.sin(gameTime * 2.5 + item.bobPhase) * 0.4;
+    const rotY = gameTime * 2.0;
+    const pulse = 1.0 + Math.sin(gameTime * 5.0) * 0.08;
+    const spawnScale = Math.min(1.0, (item.age || 0) * 3.0); // pop in
+
+    // Aura glow (cubo translúcido maior)
+    mvPush();
+    mat4.translate(mv, mv, [item.pos[0], bobY, item.pos[2]]);
+    mat4.rotate(mv, mv, rotY * 0.3, [0, 1, 0]);
+    const glowSize = 1.0 * pulse * spawnScale;
+    drawCube(
+        def.glowColor,
+        [glowSize, glowSize, glowSize],
+        0, 3.0 // alto emissive = brilho forte
+    );
+    mvPop();
+
+    // Cubo principal
+    mvPush();
+    mat4.translate(mv, mv, [item.pos[0], bobY, item.pos[2]]);
+    mat4.rotate(mv, mv, rotY, [0, 1, 0]);
+    mat4.rotate(mv, mv, gameTime * 1.5, [1, 0, 0]); // rotação extra X
+    const sz = 0.55 * pulse * spawnScale;
+    drawCube(
+        def.color,
+        [sz, sz, sz],
+        0, 2.5
+    );
+    mvPop();
+
+    // Coluna de luz abaixo
+    mvPush();
+    mat4.translate(mv, mv, [item.pos[0], GROUND_Y + 0.5, item.pos[2]]);
+    drawCube(
+        [def.color[0], def.color[1], def.color[2], 0.15],
+        [0.1, 1.0 * spawnScale, 0.1],
+        0, 2.0
+    );
+    mvPop();
+
+    // Marcador no chão
+    mvPush();
+    mat4.translate(mv, mv, [item.pos[0], GROUND_Y + 0.05, item.pos[2]]);
+    mat4.rotate(mv, mv, gameTime * 1.0, [0, 1, 0]);
+    drawCube(
+        [def.color[0], def.color[1], def.color[2], 0.25],
+        [1.5 * pulse, 0.03, 1.5 * pulse],
+        0, 1.5
+    );
+    mvPop();
+}
+
+/**
+ * Renderiza aura de buff ativo ao redor de uma entidade (3D).
+ */
+function _renderBuffAura(ent, gameTime) {
+    const buff = getEntityBuff(ent);
+    if (!buff) return;
+
+    const def = getPowerUpDef(buff.type);
+    const mv = getMV();
+    const blinkRate = buff.timer < 2.0 ? 8.0 : 0; // pisca quando acabando
+    const visible = blinkRate === 0 || Math.sin(gameTime * blinkRate * Math.PI) > 0;
+    if (!visible) return;
+
+    const auraSize = ent.size * 1.3;
+    const pulse = 1.0 + Math.sin(gameTime * 4.0) * 0.05;
+
+    // Aura translúcida pulsante ao redor da entidade
+    mvPush();
+    mat4.translate(mv, mv, ent.pos);
+    mat4.rotate(mv, mv, gameTime * 1.5, [0, 1, 0]);
+    drawCube(
+        [def.glowColor[0], def.glowColor[1], def.glowColor[2], 0.2 * (buff.timer / 8.0)],
+        [auraSize * pulse, auraSize * pulse, auraSize * pulse],
+        0, 2.0
+    );
+    mvPop();
+
+    // Partículas orbitais (4 cubinhos)
+    for (let i = 0; i < 4; i++) {
+        const angle = gameTime * 3.0 + i * Math.PI * 0.5;
+        const orbitR = ent.size * 1.6;
+        const px = ent.pos[0] + Math.cos(angle) * orbitR;
+        const py = ent.pos[1] + Math.sin(gameTime * 2.0 + i) * 0.3;
+        const pz = ent.pos[2] + Math.sin(angle) * orbitR;
+
+        mvPush();
+        mat4.translate(mv, mv, [px, py, pz]);
+        mat4.rotate(mv, mv, gameTime * 5.0, [1, 1, 0]);
+        drawCube(def.color, [0.12, 0.12, 0.12], 0, 3.0);
+        mvPop();
+    }
+}
+
+/**
+ * Renderiza indicador HUD 2D do buff ativo do player.
+ */
+function _renderPowerUpHUD() {
+    if (!_2dCanvas || !_2dCtx) return;
+
+    const buff = getEntityBuff(player);
+    if (!buff) return;
+
+    const def = getPowerUpDef(buff.type);
+    const x = _2dCanvas.width - 100;
+    const y = 120;
+
+    const pct = buff.timer / def.duration;
+    const blink = buff.timer < 2.0 ? Math.sin(performance.now() * 0.01) > 0 : true;
+    if (!blink) return;
+
+    _2dCtx.save();
+    _2dCtx.globalAlpha = 0.9;
+
+    // Background bar
+    _2dCtx.fillStyle = 'rgba(0,0,0,0.7)';
+    _2dCtx.strokeStyle = `rgba(${def.color[0]*255|0},${def.color[1]*255|0},${def.color[2]*255|0},0.8)`;
+    _2dCtx.lineWidth = 2;
+    _2dCtx.beginPath();
+    _2dCtx.roundRect(x - 40, y - 15, 80, 40, 6);
+    _2dCtx.fill();
+    _2dCtx.stroke();
+
+    // Icon + Name
+    _2dCtx.font = 'bold 14px monospace';
+    _2dCtx.fillStyle = `rgb(${def.color[0]*255|0},${def.color[1]*255|0},${def.color[2]*255|0})`;
+    _2dCtx.textAlign = 'center';
+    _2dCtx.fillText(def.name, x, y + 2);
+
+    // Timer bar
+    const barW = 60;
+    const barH = 5;
+    _2dCtx.fillStyle = 'rgba(50,50,50,0.8)';
+    _2dCtx.fillRect(x - barW/2, y + 10, barW, barH);
+    _2dCtx.fillStyle = `rgb(${def.color[0]*255|0},${def.color[1]*255|0},${def.color[2]*255|0})`;
+    _2dCtx.fillRect(x - barW/2, y + 10, barW * pct, barH);
+
+    _2dCtx.restore();
+}
+
+/**
+ * Callback quando um power-up é coletado.
+ */
+function _onPowerUpCollected(collector, type) {
+    const def = getPowerUpDef(type);
+
+    // SFX específico por tipo
+    switch (type) {
+        case PU_TANK:   SFX.playPowerUpTank();   break;
+        case PU_NITRO:  SFX.playPowerUpNitro();  break;
+        case PU_TITAN:  SFX.playPowerUpTitan();  break;
+        case PU_IMPACT: SFX.playPowerUpImpact(); break;
+    }
+
+    // Haptic forte
+    Haptic.heavyPulse();
+
+    // Camera shake de coleta
+    camera.addShake(1.5);
+
+    // Slow-mo de coleta (momento dramático)
+    slowMo = 0.4;
+
+    // Floating text de coleta
+    _spawnDamageNumber(collector, 0, true);
+    // Adicionar texto especial via nome
+    floatingNumbers[floatingNumbers.length - 1].damage = 0;
+    floatingNumbers[floatingNumbers.length - 1].powerUpName = def.name;
+
+    // Screen flash (via edgeWarning momentâneo com cor customizada)
+    if (collector.isPlayer || collector === player) {
+        // Spawn de diálogo especial
+        showDialog(collector, 'attack');
+    }
+
+    // TANQUE: shake ao caminhar (marcamos flag)
+    if (type === PU_TANK) {
+        collector._tankShake = true;
+    }
+}
+
 function _renderDialogBubbles() {
     if (!_2dCanvas || !_2dCtx) return;
     
@@ -438,6 +647,9 @@ function _renderDialogBubbles() {
     
     // Render combo display
     _renderComboDisplay();
+    
+    // Render power-up HUD indicator
+    _renderPowerUpHUD();
     
     // Projetar posição 3D para 2D usando matrizes corretas
     const allEntities = player ? [player, ...enemies] : enemies;
@@ -590,6 +802,11 @@ function _updateFight(dt) {
     // Movement SFX level
     const hSpeed = Math.sqrt(player.vel[0] ** 2 + player.vel[2] ** 2);
     SFX.setMovementLevel(Math.min(1, hSpeed / 0.9));
+    
+    // TANQUE power-up: camera treme ao andar (passos pesados)
+    if (player._tankShake && hSpeed > 0.1 && player.onGround) {
+        camera.addShake(hSpeed * 0.25);
+    }
 
     // Player attack expression quando soca
     if (input.lClick && player.arms.left.currentExt > 2.0) {
@@ -612,6 +829,12 @@ function _updateFight(dt) {
     
     // Update floating damage numbers
     _updateFloatingNumbers(dt * slowMo);
+    
+    // Update power-up system
+    const puResult = updatePowerUps(dt * slowMo, player, enemies, ARENA_RADIUS, gameTime);
+    if (puResult.collected) {
+        _onPowerUpCollected(puResult.collector, puResult.collected);
+    }
     
     // Update charge button progress ring (mobile)
     if (isTouchActive() && window._$chargeProgress) {
@@ -712,6 +935,13 @@ function _updateFight(dt) {
             if (force > 0.4) {
                 slowMo = Math.min(slowMo, 0.3); // freeze mais forte
                 camera.addShake(force * 2.0);   // shake extra
+            }
+            
+            // IMPACTO power-up: hit stop exagerado + shake violento
+            const playerBuff = getEntityBuff(player);
+            if (playerBuff && playerBuff.type === PU_IMPACT) {
+                slowMo = Math.min(slowMo, 0.1); // freeze quase completo
+                camera.addShake(force * 4.0);    // shake violento
             }
         }
         if (hitPL || hitPR) {
@@ -1240,6 +1470,12 @@ function startCountdown() {
     killCount = { 'PLAYER': 0 };
     enemies.forEach(e => { killCount[e.name] = 0; });
     _updateKillFeed();
+    
+    // Reset power-ups para o novo round
+    resetPowerUps();
+    playerComboCount = 0;
+    lastPlayerHitTime = 0;
+    floatingNumbers = [];
 
     // Se estamos em modo de desenvolvimento/teste, pule o countdown
     if (typeof DEV !== 'undefined' && DEV.hideRound) {
