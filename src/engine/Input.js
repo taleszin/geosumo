@@ -104,11 +104,12 @@ function _createTouchOverlay() {
 
     $joystickBase = document.createElement('div');
     $joystickBase.id = 'joystick-base';
-    // Positioned fixed on the left bottom — always visible in touch mode
+    // Joystick dinâmico: aparece onde o jogador tocar (padrão ouro mobile)
     $joystickBase.style.cssText =
-        'position:fixed;left:96px;bottom:140px;width:120px;height:120px;border-radius:50%;' +
+        'position:fixed;width:120px;height:120px;border-radius:50%;' +
         'border:2px solid rgba(0,255,255,0.25);background:rgba(0,20,30,0.18);' +
-        'display:none;pointer-events:none;';
+        'display:none;pointer-events:none;' +
+        'transform:translate(-50%, -50%);'; // centraliza no touch point
 
 
     $joystickKnob = document.createElement('div');
@@ -243,15 +244,15 @@ function _onTouchStart(e) {
         const t = e.changedTouches[i];
         if (t.clientX < halfW) {
             if (!_moveTouch) {
-                // Left side: movement joystick (joystick is fixed in position)
-                // Use joystick visual center as start point for consistent control
-                let cx = t.clientX, cy = t.clientY;
+                // Left side: movement joystick (joystick aparece onde tocar)
+                _moveTouch = { id: t.identifier, startX: t.clientX, startY: t.clientY };
+                
+                // Posiciona joystick onde o dedo tocou
                 if ($joystickBase) {
-                    const r = $joystickBase.getBoundingClientRect();
-                    cx = r.left + r.width * 0.5;
-                    cy = r.top + r.height * 0.5;
+                    $joystickBase.style.left = `${t.clientX}px`;
+                    $joystickBase.style.top = `${t.clientY}px`;
+                    $joystickBase.style.display = 'block';
                 }
-                _moveTouch = { id: t.identifier, startX: cx, startY: cy };
                 _updateJoystickKnob(0, 0);
             }
         } else {
@@ -353,8 +354,8 @@ function _onTouchEnd(e) {
         if (_moveTouch && t.identifier === _moveTouch.id) {
             _moveTouch = null;
             state.moveX = 0; state.moveZ = 0;
-            // joystick stays visible for touch mode (per user request)
-            // $joystickBase.style.display = 'none';
+            // Esconde joystick quando soltar
+            if ($joystickBase) $joystickBase.style.display = 'none';
         }
 
         // Punch touches (short taps)
@@ -386,15 +387,29 @@ function _onTouchEnd(e) {
 
 // ── Punch helper ─────────────────────────────────────────────
 let _punchTimerL = 0, _punchTimerR = 0;
+let _punchCooldownL = 0, _punchCooldownR = 0;
+
 function _firePunch(side) {
+    const now = performance.now();
+    
     if (side === 'left') {
+        // Cooldown para evitar spam (120ms entre punches)
+        if (now - _punchCooldownL < 120) return;
+        
         state.lClick = true;
+        _punchCooldownL = now;
+        
         clearTimeout(_punchTimerL);
-        _punchTimerL = setTimeout(() => { state.lClick = false; }, 200);
+        // Punch instantaneo: 120ms para snap completo + retração
+        _punchTimerL = setTimeout(() => { state.lClick = false; }, 120);
     } else {
+        if (now - _punchCooldownR < 120) return;
+        
         state.rClick = true;
+        _punchCooldownR = now;
+        
         clearTimeout(_punchTimerR);
-        _punchTimerR = setTimeout(() => { state.rClick = false; }, 200);
+        _punchTimerR = setTimeout(() => { state.rClick = false; }, 120);
     }
 }
 

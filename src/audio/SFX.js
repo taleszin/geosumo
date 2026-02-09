@@ -211,6 +211,14 @@ export function playLose() {
     _playOsc({type:'triangle', freq:220, dur:0.36, gain:0.2});
 }
 
+export function playRingOut() {
+    init();
+    // Som de queda no void: descrescente
+    _playOsc({type:'sine', freq:500, dur:0.15, gain:0.15});
+    setTimeout(()=>_playOsc({type:'sine', freq:300, dur:0.15, gain:0.12}), 100);
+    setTimeout(()=>_playOsc({type:'sine', freq:150, dur:0.2, gain:0.08}), 200);
+}
+
 // Movement: set level 0..1 — affects movementOsc frequency and gain
 export function setMovementLevel(level) {
     init();

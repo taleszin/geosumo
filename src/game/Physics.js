@@ -18,6 +18,7 @@ import { setExpression, EXPR_STUNNED } from './Entity.js';
 export const GRAVITY        = 0.018;
 export const GROUND_Y       = 0.0;
 export const FALL_THRESHOLD = -12.0;
+export const MAX_HEIGHT     = 8.0;   // Limite máximo de altura (teto invisível)
 
 const GROUND_FRICTION = 0.86;        // alto = pesado
 const AIR_FRICTION    = 0.98;
@@ -35,8 +36,13 @@ const CHARGE_IMPACT_MULT  = 2.0;    // multiplicador de dano/impulso quando char
 const BODY_SLAM_FORCE     = 0.15;   // força da colisão corpo-a-corpo com charge (reduzido: 0.25 → 0.15)
 const BODY_SLAM_DAMAGE    = 8;      // dano do body slam
 const RECOIL_FACTOR       = 0.2;    // quanto o atacante recua (Newton 3ª lei)
-const LIFT_FORCE          = 0.12;   // quanto o defensor é levantado
+const LIFT_FORCE          = 0.04;   // quanto o defensor é levantado (REDUZIDO: 0.12 → 0.04)
 const DAMAGE_PER_FORCE    = 2.5;    // conversão força → dano % (Smash Bros style)
+
+// ── Constantes de hitstun (atordoamento após hit) ────────
+const BASE_HITSTUN        = 15;     // frames base de hitstun (0.25s a 60fps)
+const HITSTUN_PER_DAMAGE  = 0.3;    // frames adicionais por 1% de dano
+const HITSTUN_FRICTION    = 0.75;   // fricção durante hitstun (mais difícil voltar ao controle)
 
 // ── Update de entidade (gravidade, integração, chão) ─────────
 
@@ -49,9 +55,24 @@ export function updateEntityPhysics(ent) {
     ent.pos[1] += ent.vel[1];
     ent.pos[2] += ent.vel[2];
 
+    // Limite máximo de altura (teto invisível)
+    if (ent.pos[1] > MAX_HEIGHT) {
+        ent.pos[1] = MAX_HEIGHT;
+        if (ent.vel[1] > 0) ent.vel[1] = 0;
+    }
+
     // Atrito (menos atrito se carregando — para o charge deslizar mais)
     let friction = ent.onGround ? GROUND_FRICTION : AIR_FRICTION;
     if (ent.isCharging) friction = 0.92; // menos atrito durante charge
+    // Durante hitstun, MUITO mais atrito (difícil recuperar controle)
+    if (ent.hitstunTimer > 0) {
+        friction = HITSTUN_FRICTION;
+        ent.hitstunTimer--;
+    } else if (ent.isEnemy && !ent.isCharging) {
+        // CPU desliza mais após knockback (mais fácil eliminar) baseado na dificuldade
+        const diffFriction = [0.88, 0.90, 0.92]; // Fácil: desliza MUITO, Médio: desliza mais, Difícil: desliza pouco
+        friction = Math.min(friction, diffFriction[_gameDifficulty]);
+    }
     ent.vel[0] *= friction;
     ent.vel[2] *= friction;
 
@@ -85,6 +106,17 @@ export function updateEntityPhysics(ent) {
 
     // Charge cooldown tick
     if (ent.chargeCooldown > 0) ent.chargeCooldown--;
+}
+
+// ── Parâmetros para dificuldade (passados do main.js) ────────
+let _gameDifficulty = 1; // 0=Fácil, 1=Médio, 2=Difícil
+
+export function setDifficulty(diff) {
+    _gameDifficulty = diff;
+}
+
+export function getDifficulty() {
+    return _gameDifficulty;
 }
 
 // ── Colisão braço vs chão ────────────────────────────────────
@@ -226,30 +258,45 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
     }
 
     // ── APLICAR IMPULSO ──────────────────────────────────
-    const maxImpulse = 0.35; // reduzido para melhor UX (0.8 → 0.6 → 0.35)
+    const maxImpulse = 0.55; // aumentado para facilitar empurrão (0.45 → 0.55)
     let impulseX = clamp(impDx * impactForce, -maxImpulse, maxImpulse);
     let impulseZ = clamp(impDz * impactForce, -maxImpulse, maxImpulse);
 
-    // ── SISTEMA DE DANO SMASH BROS ──────────────────────
-    // Quanto mais dano acumulado, maior o knockback!
-    const damageMultiplier = 1.0 + (defender.damage / 100) * 0.6; // +60% knockback a cada 100%
-    impulseX *= damageMultiplier;
-    impulseZ *= damageMultiplier;
+    // ── SISTEMA DE KNOCKBACK SMASH BROS (FOCO HORIZONTAL) ────
+    // 1. Quanto mais dano acumulado, maior o knockback
+    const damageMultiplier = 1.0 + (defender.damage / 60) * 1.5; // +150% knockback a cada 60% (muito agressivo)
+    
+    // 2. Quanto menos vidas restantes, MUITO mais fácil de empurrar
+    const livesRatio = defender.lives / (defender.maxLives || 1);
+    const livesMultiplier = 1.0 + (1.0 - livesRatio) * 1.2; // até +120% knockback com 0 vidas
+    
+    // Combina os dois multiplicadores
+    const totalKnockbackMult = damageMultiplier * livesMultiplier;
+    impulseX *= totalKnockbackMult;
+    impulseZ *= totalKnockbackMult;
 
-    // Player tem +35% resistência a knockback (aumenta peso efetivo)
+    // Enemy (CPU) é MAIS fácil de empurrar que o player
+    if (defender.isEnemy) {
+        const diffKnockback = [1.35, 1.15, 0.95]; // Fácil: +35%, Médio: +15%, Difícil: -5%
+        const mult = diffKnockback[_gameDifficulty];
+        impulseX *= mult;
+        impulseZ *= mult;
+    }
+    // Player tem resistência moderada
     if (defender.isPlayer) {
-        impulseX *= 0.65;
-        impulseZ *= 0.65;
+        impulseX *= 0.85;
+        impulseZ *= 0.85;
     }
 
-    // Clamp após multiplicadores
-    impulseX = clamp(impulseX, -maxImpulse * 1.5, maxImpulse * 1.5);
-    impulseZ = clamp(impulseZ, -maxImpulse * 1.5, maxImpulse * 1.5);
+    // Clamp após multiplicadores (limite muito maior para knockbacks brutais)
+    impulseX = clamp(impulseX, -maxImpulse * 3.5, maxImpulse * 3.5);
+    impulseZ = clamp(impulseZ, -maxImpulse * 3.5, maxImpulse * 3.5);
 
     // Defensor é empurrado
     defender.vel[0] += impulseX;
-    const liftMul = defender.isPlayer ? 0.7 : 1.0; // Player também resiste a lift
-    defender.vel[1] += clamp(impactForce * LIFT_FORCE * liftMul * damageMultiplier, 0, 0.35);
+    // Lift MUITO reduzido - foco no knockback horizontal!
+    const liftAmount = impactForce * LIFT_FORCE * 0.3; // MUITO reduzido
+    defender.vel[1] += clamp(liftAmount, 0, 0.15); // máximo muito baixo
     defender.vel[2] += impulseZ;
 
     // Atacante recua (Newton 3ª lei, moderada)
@@ -261,7 +308,21 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
     // Player recebe 25% menos dano (mais tolerante)
     if (defender.isPlayer) damageAdd *= 0.75;
     defender.damage += damageAdd; // Acumula % de dano (Smash Bros style)
-
+    // ── HITSTUN (atordoamento após hit - estilo Smash Bros) ────────────────────────
+    // Quanto mais dano, mais tempo atordoado
+    let hitstunFrames = BASE_HITSTUN + defender.damage * HITSTUN_PER_DAMAGE;
+    
+    // Dificuldade afeta hitstun da CPU
+    if (defender.isEnemy) {
+        const diffMultipliers = [1.5, 1.0, 0.6]; // Fácil: +50%, Médio: normal, Difícil: -40%
+        hitstunFrames *= diffMultipliers[_gameDifficulty];
+    }
+    // Player tem hitstun reduzido (melhor recovery)
+    if (defender.isPlayer) {
+        hitstunFrames *= 0.7;
+    }
+    
+    defender.hitstunTimer = Math.floor(hitstunFrames);
     // ── FEEDBACK VISUAL ──────────────────────────────────
     defender.hitFlash = clamp(impactForce * 1.2, 0.3, 1.0);
     const tiltForce = clamp(impactForce * 0.15, 0.02, 0.4);
@@ -346,13 +407,13 @@ export function bodyCollision(a, b) {
             
             if (source === a) {
                 b.vel[0] += nx * bump;
-                b.vel[1] += bump * 0.2;
+                b.vel[1] += bump * 0.08; // reduzido de 0.2 para 0.08
                 b.vel[2] += nz * bump;
                 b.damage += BODY_SLAM_DAMAGE * (bump / BODY_SLAM_FORCE);
                 b.hitFlash = 0.5;
             } else {
                 a.vel[0] -= nx * bump;
-                a.vel[1] += bump * 0.2;
+                a.vel[1] += bump * 0.08; // reduzido de 0.2 para 0.08
                 a.vel[2] -= nz * bump;
                 a.damage += BODY_SLAM_DAMAGE * (bump / BODY_SLAM_FORCE);
                 a.hitFlash = 0.5;
@@ -373,7 +434,7 @@ export function bodyCollision(a, b) {
 
         if (speedA > speedB) {
             b.vel[0] += nx * slamForce;
-            b.vel[1] += slamForce * 0.3;
+            b.vel[1] += slamForce * 0.1; // reduzido de 0.3 para 0.1
             b.vel[2] += nz * slamForce;
             b.damage += BODY_SLAM_DAMAGE * (slamForce / BODY_SLAM_FORCE);
             b.hitFlash = 0.6;
@@ -381,7 +442,7 @@ export function bodyCollision(a, b) {
             b.rot[0] += nz * slamForce * 0.3;
         } else {
             a.vel[0] -= nx * slamForce;
-            a.vel[1] += slamForce * 0.3;
+            a.vel[1] += slamForce * 0.1; // reduzido de 0.3 para 0.1
             a.vel[2] -= nz * slamForce;
             a.damage += BODY_SLAM_DAMAGE * (slamForce / BODY_SLAM_FORCE);
             a.hitFlash = 0.6;

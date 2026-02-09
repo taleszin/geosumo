@@ -31,7 +31,7 @@ export function checkArenaEdge(ent) {
 }
 
 /**
- * Desenha o chão + pilares decorativos.
+ * Desenha o chão + pilares decorativos + BORDA DA ARENA VISUAL.
  */
 export function drawArena(gameTime) {
     const mv = getMV();
@@ -42,8 +42,44 @@ export function drawArena(gameTime) {
     drawFloor(gameTime, ARENA_RADIUS);
     mvPop();
 
-    // ── Pilares na borda ──
+    // ── BORDA VISUAL DA ARENA ──
+    // Anel externo que marca o limite (fica bem claro onde é a borda)
     useObjShader();
+    const numEdgeSegments = 32;
+    for (let i = 0; i < numEdgeSegments; i++) {
+        const angle = (i / numEdgeSegments) * Math.PI * 2;
+        const nextAngle = ((i + 1) / numEdgeSegments) * Math.PI * 2;
+        
+        const x1 = Math.cos(angle) * ARENA_RADIUS;
+        const z1 = Math.sin(angle) * ARENA_RADIUS;
+        const x2 = Math.cos(nextAngle) * ARENA_RADIUS;
+        const z2 = Math.sin(nextAngle) * ARENA_RADIUS;
+        
+        const midX = (x1 + x2) * 0.5;
+        const midZ = (z1 + z2) * 0.5;
+        
+        // Barra vertical na borda (aviso visual)
+        const pulse = 0.6 + 0.4 * Math.sin(gameTime * 3.0 + i * 0.3);
+        mvPush();
+        mat4.translate(mv, mv, [midX, GROUND_Y + 0.15, midZ]);
+        drawCube(
+            [1.0, 0.1 * pulse, 0.1, 0.9], // vermelho pulsante
+            [0.3, 0.3, 0.3], 0, 1.5
+        );
+        mvPop();
+    }
+
+    // ── VOID visual (escuridão abaixo) ──
+    // Plataforma escura bem abaixo para dar sensação de queda no vazio
+    mvPush();
+    mat4.translate(mv, mv, [0, GROUND_Y - 15, 0]);
+    drawCube(
+        [0.05, 0.0, 0.15, 0.7], // azul escuro translucido
+        [ARENA_RADIUS * 3, 0.1, ARENA_RADIUS * 3], 0, 0
+    );
+    mvPop();
+
+    // ── Pilares na borda ──
     const numPillars = 8;
     for (let i = 0; i < numPillars; i++) {
         const angle = (i / numPillars) * Math.PI * 2;

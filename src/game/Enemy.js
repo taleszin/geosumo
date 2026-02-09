@@ -44,6 +44,13 @@ export class EnemyAI {
     update(enemy, player, allEnemies, gameTime, arenaRadius) {
         const e = enemy;
 
+        // ── HITSTUN: enquanto atordoado, não age (só interpola braços) ──
+        if (e.hitstunTimer > 0) {
+            this._retractArms(e);
+            this._lerpArms(e, 0.25); // interpola mais rápido durante hitstun
+            return;
+        }
+
         // Escolher alvo (player ou outro inimigo próximo)
         this.targetChangeTimer--;
         if (!this.currentTarget || this.targetChangeTimer <= 0) {
@@ -137,7 +144,7 @@ export class EnemyAI {
 
     /**
      * Escolhe um alvo para atacar: pode ser o player ou outro inimigo.
-     * Prioriza alvos mais próximos, mas com chance de focar no player.
+     * Aumentado foco em outros inimigos para combates mais dinâmicos.
      */
     _chooseTarget(enemy, player, allEnemies) {
         const candidates = [player];
@@ -149,8 +156,18 @@ export class EnemyAI {
             }
         });
 
-        // 50% de chance de sempre focar no player (mais desafiador)
-        if (Math.random() < 0.5) {
+        // Se há múltiplos inimigos, 60% de chance de focar em outro inimigo (aumenta confronto)
+        if (allEnemies.length > 1 && Math.random() < 0.6) {
+            // Filtra apenas outros inimigos (remove player)
+            const otherEnemies = candidates.filter(c => c.isEnemy);
+            if (otherEnemies.length > 0) {
+                // Escolhe aleatório entre os inimigos
+                return otherEnemies[Math.floor(Math.random() * otherEnemies.length)];
+            }
+        }
+
+        // 30% de chance de focar no player
+        if (Math.random() < 0.3) {
             return player;
         }
 
@@ -177,19 +194,19 @@ export class EnemyAI {
         const targetNearEdge = targetEdge > arenaRadius * 0.5;
 
         if (dist > 6) {
-            weights.push({ s: AI_APPROACH, w: 3 });
+            weights.push({ s: AI_APPROACH, w: 4 }); // mais agressivo (3 → 4)
             weights.push({ s: AI_CHARGE,   w: 2 }); // carga de longe!
             weights.push({ s: AI_CIRCLE,   w: 1 });
         } else if (dist > 3.5) {
-            weights.push({ s: AI_ATTACK,   w: 3 + (1 - damageRatio) * 2 }); // menos agressivo se muito damage
+            weights.push({ s: AI_ATTACK,   w: 5 + (1 - damageRatio) * 2 }); // muito mais agressivo (3 → 5)
             weights.push({ s: AI_CHARGE,   w: targetNearEdge ? 4 : 1 }); // charge se alvo perto da borda!
-            weights.push({ s: AI_CIRCLE,   w: 2 });
-            weights.push({ s: AI_RETREAT,  w: 1.5 * damageRatio }); // mais retreat se muito damage
+            weights.push({ s: AI_CIRCLE,   w: 1 });
+            weights.push({ s: AI_RETREAT,  w: 1.0 * damageRatio }); // menos retreat
         } else {
-            weights.push({ s: AI_ATTACK,   w: 4 + (1 - damageRatio) * 3 });
+            weights.push({ s: AI_ATTACK,   w: 6 + (1 - damageRatio) * 3 }); // muito agressivo (4 → 6)
             weights.push({ s: AI_CHARGE,   w: targetNearEdge ? 3 : 0.5 });
             weights.push({ s: AI_CIRCLE,   w: 1 });
-            weights.push({ s: AI_RETREAT,  w: 2 * damageRatio }); // mais retreat se muito damage
+            weights.push({ s: AI_RETREAT,  w: 1.5 * damageRatio }); // menos retreat
         }
 
         const total = weights.reduce((s, w) => s + w.w, 0);

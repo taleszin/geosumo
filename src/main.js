@@ -29,7 +29,8 @@ import { makePlayerEntity, makeEnemyEntity, START_DAMAGE,
          EXPR_NORMAL, EXPR_ATTACK, EXPR_HURT,
          EXPR_STUNNED, EXPR_CHARGING }                   from './game/Entity.js';
 import { updateEntityPhysics, checkArmGround,
-         checkArmHit, bodyCollision, GROUND_Y }          from './game/Physics.js';
+         checkArmHit, bodyCollision, GROUND_Y,
+         setDifficulty }                                from './game/Physics.js';
 import { updatePlayerMovement, updatePlayerArms }        from './game/Player.js';
 import { EnemyAI }                                       from './game/Enemy.js';
 import { ARENA_RADIUS, checkArenaEdge, setArenaRadius,
@@ -63,6 +64,8 @@ let enemies  = [];     // array de inimigos (1-4)
 let enemyAIs = [];     // array de IAs para cada inimigo
 let camera   = null;
 let numEnemies = 1;    // número escolhido de adversários (1-4)
+let numLives   = 3;    // número de vidas por lutador (1-5) - Smash Bros style
+let difficulty = 1;    // dificuldade: 0=Fácil, 1=Médio, 2=Difícil
 
 // Customização do jogador
 let playerCustom = defaultCustomization();
@@ -106,6 +109,8 @@ const $custColorDisp   = document.getElementById('cust-color-display');
 const $custEyesDisp    = document.getElementById('cust-eyes-display');
 const $custMouthDisp   = document.getElementById('cust-mouth-display');
 const $custEnemyDisp   = document.getElementById('cust-enemy-display');
+const $custLivesDisp   = document.getElementById('cust-lives-display');
+const $custDifficultyDisp = document.getElementById('cust-difficulty-display');
 const $custDesc        = document.getElementById('cust-desc');
 const $custFightBtn    = document.getElementById('cust-fight-btn');
 const $custRandomBtn   = document.getElementById('cust-random-btn');
@@ -281,7 +286,7 @@ function _updateFight(dt) {
 
     // 1. Player com feedback de charge
     const moveResult = updatePlayerMovement(player, input, 0);
-    updatePlayerArms(player, input);
+    updatePlayerArms(player, input, isTouchActive());
 
     // Movement SFX level
     const hSpeed = Math.sqrt(player.vel[0] ** 2 + player.vel[2] ** 2);
@@ -455,15 +460,49 @@ function _updateFight(dt) {
     }
     _lastEdgeWarn = edgeWarning;
 
-    // 7. Verificar ring-outs (única forma de derrota - estilo Smash Bros)
+    // 7. Verificar ring-outs e gerenciar sistema de vidas (Smash Bros style)
     const playerOut = checkArenaEdge(player);
     
-    // Remover inimigos que caíram da arena
+    if (playerOut) {
+        player.lives--;
+        SFX.playRingOut(); // som de queda
+        
+        if (player.lives > 0) {
+            // Respawn player no centro com dano zerado
+            _respawnEntity(player, [0, 0, -4]);
+        } else {
+            // Game Over
+            phase = 'lose';
+            $hud.style.display = 'none';
+            $stateTitle.style.fontSize = '';
+            showStateScreen('DERROTA', `Eliminado no round ${round}`,
+                '[ TOQUE OU CLIQUE PARA RECOMEÇAR ]', '#f22');
+            SFX.playLose();
+            return; // não continuar update
+        }
+    }
+    
+    // Verificar queda de inimigos e respawn
     const aliveEnemies = [];
     const aliveAIs = [];
     enemies.forEach((enemy, idx) => {
         const enemyOut = checkArenaEdge(enemy);
-        if (!enemyOut) {
+        if (enemyOut) {
+            enemy.lives--;
+            SFX.playRingOut();
+            
+            if (enemy.lives > 0) {
+                // Respawn inimigo numa posição aleatória
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 6;
+                const x = Math.sin(angle) * dist;
+                const z = Math.cos(angle) * dist;
+                _respawnEntity(enemy, [x, 0, z]);
+                aliveEnemies.push(enemy);
+                aliveAIs.push(enemyAIs[idx]);
+            }
+            // Se lives <= 0, não adiciona de volta (eliminado)
+        } else {
             aliveEnemies.push(enemy);
             aliveAIs.push(enemyAIs[idx]);
         }
@@ -471,7 +510,7 @@ function _updateFight(dt) {
     enemies = aliveEnemies;
     enemyAIs = aliveAIs;
 
-    // Condições de vitória/derrota
+    // Condições de vitória
     if (enemies.length === 0) {
         phase = 'win';
         $hud.style.display = 'none';
@@ -479,13 +518,6 @@ function _updateFight(dt) {
         showStateScreen('VITÓRIA!', `Round ${round} completado — ${numEnemies} adversários derrotados!`,
             '[ TOQUE OU CLIQUE PARA CONTINUAR ]', '#0f0');
         SFX.playWin();
-    } else if (playerOut) {
-        phase = 'lose';
-        $hud.style.display = 'none';
-        $stateTitle.style.fontSize = '';
-        showStateScreen('DERROTA', `Eliminado no round ${round}`,
-            '[ TOQUE OU CLIQUE PARA RECOMEÇAR ]', '#f22');
-        SFX.playLose();
     }
 
     // 8. Cor reage ao dano acumulado
@@ -570,6 +602,9 @@ function _updateCustomizeDisplay() {
     $custEyesDisp.textContent  = `${eyes.icon} ${eyes.name}`;
     $custMouthDisp.textContent = `${mouth.icon} ${mouth.name}`;
     $custEnemyDisp.textContent = numEnemies === 1 ? '1 adversário' : `${numEnemies} adversários`;
+    $custLivesDisp.textContent = numLives === 1 ? '1 vida' : `${numLives} vidas`;
+    const diffNames = ['🟢 Fácil', '⚔ Médio', '🔥 Difícil'];
+    $custDifficultyDisp.textContent = diffNames[difficulty];
 
     const r = Math.round(color.body[0] * 255);
     const g = Math.round(color.body[1] * 255);
@@ -606,6 +641,12 @@ function _initCustomizeUI() {
                     break;
                 case 'enemies':
                     numEnemies = Math.max(1, Math.min(4, numEnemies + dir));
+                    break;
+                case 'lives':
+                    numLives = Math.max(1, Math.min(5, numLives + dir));
+                    break;
+                case 'difficulty':
+                    difficulty = Math.max(0, Math.min(2, difficulty + dir));
                     break;
             }
             _updateCustomizeDisplay();
@@ -669,11 +710,16 @@ function exitCustomize() {
 function startCountdown() {
     exitCustomize();
 
+    // Aplicar dificuldade escolhida
+    setDifficulty(difficulty);
+
     // Ajustar tamanho da arena baseado no número de inimigos
     setArenaRadius(numEnemies);
 
-    // Criar player
+    // Criar player com número de vidas configurado
     player = makePlayerEntity([0, 0, -4], 1.2, playerCustom);
+    player.lives = numLives;
+    player.maxLives = numLives;
 
     // Criar múltiplos inimigos em posições distribuídas em círculo
     enemies = [];
@@ -686,6 +732,8 @@ function startCountdown() {
         const size = 1.2 + round * 0.1;
         
         const enemy = makeEnemyEntity([x, 0, z], size, randomCustomization());
+        enemy.lives = numLives;
+        enemy.maxLives = numLives;
         enemies.push(enemy);
         enemyAIs.push(new EnemyAI());
     }
@@ -760,6 +808,7 @@ function _createDynamicHPBars() {
 
     // Barra do player
     const playerContainer = document.createElement('div');
+    playerContainer.id = 'hp-player-container';
     playerContainer.className = 'hp-container';
     playerContainer.innerHTML = `
         <span class="hp-label">PLAYER</span>
@@ -776,6 +825,7 @@ function _createDynamicHPBars() {
     // Barras dos inimigos
     enemies.forEach((_, idx) => {
         const enemyContainer = document.createElement('div');
+        enemyContainer.id = `hp-enemy-container-${idx}`;
         enemyContainer.className = 'hp-container';
         enemyContainer.innerHTML = `
             <span class="hp-label">ENEMY ${idx + 1}</span>
@@ -812,6 +862,13 @@ function updateHUD() {
             $hpPlayerBar.style.fontWeight = 'bold';
             $hpPlayerBar.style.textShadow = '0 0 4px #000';
         }
+        
+        // Mostrar vidas (stock) do player
+        const $playerLabel = document.querySelector('#hp-player-container .hp-label');
+        if ($playerLabel) {
+            const livesIcons = '♥'.repeat(player.lives) + '♡'.repeat(player.maxLives - player.lives);
+            $playerLabel.textContent = `PLAYER ${livesIcons}`;
+        }
     }
     
     // Atualizar porcentagens de cada inimigo
@@ -837,6 +894,13 @@ function updateHUD() {
             $hpEnemyBar.style.fontWeight = 'bold';
             $hpEnemyBar.style.textShadow = '0 0 4px #000';
         }
+        
+        // Mostrar vidas (stock) do inimigo
+        const $enemyLabel = document.querySelector(`#hp-enemy-container-${idx} .hp-label`);
+        if ($enemyLabel) {
+            const livesIcons = '♥'.repeat(enemy.lives) + '♡'.repeat(enemy.maxLives - enemy.lives);
+            $enemyLabel.textContent = `ENEMY ${idx + 1} ${livesIcons}`;
+        }
     });
 
     if (player) {
@@ -859,7 +923,28 @@ function updateHUD() {
 // ═════════════════════════════════════════════════════════════
 // Helpers
 // ═════════════════════════════════════════════════════════════
-
+function _respawnEntity(ent, pos) {
+    // Reseta posição e estado para respawn
+    const shape = getShape(ent.custom.shape);
+    ent.pos[0] = pos[0];
+    ent.pos[1] = GROUND_Y + ent.size * shape.bodyScale[1];
+    ent.pos[2] = pos[2];
+    ent.vel[0] = 0;
+    ent.vel[1] = 0;
+    ent.vel[2] = 0;
+    ent.rot[0] = 0;
+    ent.rot[1] = 0;
+    ent.rot[2] = 0;
+    ent.damage = START_DAMAGE; // Reseta dano ao respawnar
+    ent.hitFlash = 0;
+    ent.onGround = true;
+    ent.chargeAmount = 0;
+    ent.isCharging = false;
+    setExpression(ent, EXPR_NORMAL, 0);
+    
+    // Invulnerabilidade breve (visual flash)
+    ent.hitFlash = 1.0;
+}
 function _updateColorByDamage(ent) {
     // Quanto mais damage, mais vermelho fica (Smash Bros style)
     // 0% = cor normal, 100% = avermelhado, 200%+ = muito vermelho

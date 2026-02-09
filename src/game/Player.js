@@ -87,17 +87,25 @@ export function updatePlayerMovement(player, input, camYaw) {
  *   - Retração com momentum
  *   - Braços independentes para combos rápidos
  *   - Soco duplo sincronizado quando ambos os botões são pressionados
+ *   - Mobile: braços só se movem horizontalmente, sem movimento vertical
  */
-export function updatePlayerArms(player, input) {
+export function updatePlayerArms(player, input, isTouchMode = false) {
     const arms = player.arms;
 
     // ── MIRA (rotação) — suave mas precisa ────────────
-    const targetRotX = input.aimY * 1.8;  // mais range vertical
+    // Mobile: sem movimento vertical (aimY fixo em 0)
+    const targetRotX = isTouchMode ? 0 : (input.aimY * 1.8);  // 0 no mobile
     const targetRotY = input.aimX * 2.0;  // mais range horizontal
     
-    // Base extension depende da altura da mira (apontar para baixo = mais alcance)
-    let baseExt = 1.2 + (input.aimY * -1.5);
-    baseExt = clamp(baseExt, 0.6, 5.0);
+    // Base extension: no mobile, extensão fixa forward; no PC, varia com aimY
+    let baseExt;
+    if (isTouchMode) {
+        baseExt = 1.8; // extensão fixa forward no mobile
+    } else {
+        // PC: mirar para baixo aumenta alcance, para cima diminui
+        baseExt = 1.2 + (input.aimY * -1.0);
+        baseExt = clamp(baseExt, 0.6, 3.0);
+    }
 
     // Detectar soco duplo (ambos os botões pressionados)
     const doublePunch = input.lClick && input.rClick;
@@ -110,13 +118,21 @@ export function updatePlayerArms(player, input) {
         armL.targetRot = [targetRotX, doublePunch ? targetRotY * 0.7 : targetRotY];
         armL.targetExt = baseExt + (doublePunch ? 0.8 : 0.5); // extra reach no double punch
         
-        // Snap instantâneo na primeira extensão
-        if (armL.currentExt < 2.0) {
+        // MOBILE: Snap INSTANTÂNEO (padrão ouro)
+        if (isTouchMode && !armL._punching) {
+            armL.currentExt = armL.targetExt; // snap instantâneo - sem interpolação!
+            armL.currentRot[0] = targetRotX;
+            armL.currentRot[1] = targetRotY;
+            armL._punching = true;
+            armL._punchVel = 0; // sem velocity physics no mobile
+        }
+        // PC: Snap rápido na primeira extensão
+        else if (!isTouchMode && armL.currentExt < 2.0) {
             armL.currentExt = armL.targetExt * 0.7; // snap to 70% imediatamente
         }
         
-        // Overshoot para dar peso
-        if (!armL._punching) {
+        // Overshoot para dar peso (apenas PC)
+        if (!isTouchMode && !armL._punching) {
             armL._punchVel = doublePunch ? 1.0 : 0.8; // mais rápido no double punch
             armL._punching = true;
         }
@@ -135,11 +151,20 @@ export function updatePlayerArms(player, input) {
         armR.targetRot = [targetRotX, doublePunch ? -targetRotY * 0.7 : -targetRotY]; // espelhado
         armR.targetExt = baseExt + (doublePunch ? 0.8 : 0.5);
         
-        if (armR.currentExt < 2.0) {
+        // MOBILE: Snap INSTANTÂNEO
+        if (isTouchMode && !armR._punching) {
+            armR.currentExt = armR.targetExt;
+            armR.currentRot[0] = targetRotX;
+            armR.currentRot[1] = doublePunch ? -targetRotY * 0.7 : -targetRotY; // espelhado
+            armR._punching = true;
+            armR._punchVel = 0;
+        }
+        // PC: Snap rápido
+        else if (!isTouchMode && armR.currentExt < 2.0) {
             armR.currentExt = armR.targetExt * 0.7;
         }
         
-        if (!armR._punching) {
+        if (!isTouchMode && !armR._punching) {
             armR._punchVel = doublePunch ? 1.0 : 0.8;
             armR._punching = true;
         }
@@ -151,15 +176,19 @@ export function updatePlayerArms(player, input) {
     }
 
     // ── ANIMAÇÃO COM FÍSICA ─────────────────────────────
-    _animateArmWithPhysics(armL, 0.25, 0.18);
-    _animateArmWithPhysics(armR, 0.25, 0.18);
+    // Mobile: retração muito rápida; PC: system atual
+    const rotSpeed = isTouchMode ? 0.45 : 0.25;
+    const extSpeed = isTouchMode ? 0.35 : 0.18;
+    _animateArmWithPhysics(armL, rotSpeed, extSpeed, isTouchMode);
+    _animateArmWithPhysics(armR, rotSpeed, extSpeed, isTouchMode);
 }
 
 /**
  * Anima um braço com física de mola + overshoot.
  * Muito mais responsivo que simples lerp.
+ * Mobile: retração super rápida para UX instantâneo.
  */
-function _animateArmWithPhysics(arm, rotSpeed, extSpeed) {
+function _animateArmWithPhysics(arm, rotSpeed, extSpeed, isTouchMode = false) {
     // Rotação — suave mas precisa
     const tR = arm.targetRot || [0, 0];
     arm.currentRot[0] = lerp(arm.currentRot[0], tR[0], rotSpeed);
@@ -168,7 +197,12 @@ function _animateArmWithPhysics(arm, rotSpeed, extSpeed) {
     // Extensão — com momentum e overshoot
     arm.prevExt = arm.currentExt;
     
-    if (arm._punching && arm._punchVel > 0) {
+    // Mobile: sem physics, apenas lerp rápido para retração instantânea
+    if (isTouchMode) {
+        arm.currentExt = lerp(arm.currentExt, arm.targetExt, extSpeed);
+    }
+    // PC: sistema de physics com overshoot
+    else if (arm._punching && arm._punchVel > 0) {
         // Modo explosivo: usa velocidade em vez de lerp
         arm.currentExt += arm._punchVel;
         arm._punchVel *= 0.75; // decay rápido

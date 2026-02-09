@@ -57,6 +57,8 @@ function _buildEntity(pos, size, custom) {
         size,
         mass:      size * size * size,
         damage:    START_DAMAGE,        // % de dano acumulado (estilo Smash Bros)
+        lives:     3,                   // número de vidas (será definido ao criar)
+        maxLives:  3,                   // máximo de vidas
         hitFlash:  0,
         color:     bodyColor,
         baseColor: baseColor,
@@ -78,6 +80,9 @@ function _buildEntity(pos, size, custom) {
         // Cooldowns de hit
         _hitCdL: 0,
         _hitCdR: 0,
+
+        // Hitstun (atordoamento após levar hit)
+        hitstunTimer: 0,              // frames de atordoamento restantes
 
         arms: {
             left:  _makeArm(palette, 'left'),
