@@ -211,6 +211,9 @@ function tick(now) {
     if (slowMo > 0.98) slowMo = 1.0;
 
     gameTime += dt * slowMo;
+    
+    // Update audio system (beat clock & dynamic layers)
+    SFX.update(dt);
 
     // Edge warning decay
     edgeWarning *= 0.92;
@@ -339,6 +342,16 @@ function _spawnDamageNumber(entity, damage, isCombo = false) {
     });
 }
 
+function _spawnPerfectText(entity) {
+    floatingNumbers.push({
+        entity: entity,
+        text: 'PERFECT!',
+        life: 1.0,
+        offsetY: 0,
+        isPerfect: true,
+    });
+}
+
 function _updateFloatingNumbers(dt) {
     floatingNumbers = floatingNumbers.filter(num => {
         num.life -= dt * 1.5; // 0.66s duration
@@ -371,6 +384,24 @@ function _renderFloatingNumbers() {
         
         const x = screenPos.x;
         const y = screenPos.y - num.offsetY;
+        
+        // PERFECT! timing text
+        if (num.isPerfect) {
+            const alpha = num.life * num.life;
+            const scale = 1.0 + (1.0 - num.life) * 0.5; // bigger growth
+            
+            _2dCtx.save();
+            _2dCtx.globalAlpha = alpha;
+            _2dCtx.font = `bold ${Math.floor(36 * scale)}px monospace`;
+            _2dCtx.fillStyle = '#ffff00';
+            _2dCtx.strokeStyle = 'rgba(255,100,0,0.8)';
+            _2dCtx.lineWidth = 5;
+            _2dCtx.textAlign = 'center';
+            _2dCtx.strokeText(num.text, x, y);
+            _2dCtx.fillText(num.text, x, y);
+            _2dCtx.restore();
+            return;
+        }
         
         // Color based on damage amount
         let color;
@@ -904,6 +935,19 @@ function _updateFight(dt) {
             const hitData = hitEL || hitER;
             const force = hitData.force || hitData; // backward compat
             const damage = hitData.damage || 0;
+            const timingMult = hitData.timingMult || 1.0;
+            
+            // PERFECT TIMING FEEDBACK — Rhythm game mechanic!
+            if (timingMult > 1.15) {
+                // Visual feedback: PERFECT! text popup
+                _spawnPerfectText(enemy);
+                // Extra audio: play chord accent
+                SFX.playPerfectHit();
+                // Enhanced shake
+                camera.addShake(force * 1.5);
+                // Extra slow-mo for satisfaction
+                slowMo = Math.min(slowMo, 0.2);
+            }
             
             // COMBO SYSTEM
             const now = performance.now();
@@ -1099,6 +1143,40 @@ function _updateFight(dt) {
         Haptic.warningPulse();
     }
     _lastEdgeWarn = edgeWarning;
+
+    // 6.5. Calculate combat intensity for dynamic music layers
+    // Factors: recent hits, player speed, charge state, enemy proximity
+    let intensity = 0;
+    
+    // Recent hits (last 2 seconds)
+    const timeSinceHit = (performance.now() - lastPlayerHitTime) / 1000;
+    const hitFactor = timeSinceHit < 2.0 ? (2.0 - timeSinceHit) / 2.0 : 0;
+    intensity += hitFactor * 2.0; // +2 for recent action
+    
+    // Player speed
+    const playerSpeed = Math.sqrt(player.vel[0] ** 2 + player.vel[2] ** 2);
+    intensity += playerSpeed * 1.5; // faster = more intense
+    
+    // Charge state
+    if (player.chargeReady) intensity += 1.0;
+    else if (player.chargeAmount > 0.5) intensity += 0.5;
+    
+    // Combo multiplier
+    intensity += Math.min(playerComboCount * 0.5, 2.0);
+    
+    // Enemy proximity
+    let closestDist = 999;
+    enemies.forEach(enemy => {
+        const dx = enemy.pos[0] - player.pos[0];
+        const dz = enemy.pos[2] - player.pos[2];
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        closestDist = Math.min(closestDist, dist);
+    });
+    if (closestDist < 5) intensity += (5 - closestDist) / 5;
+    
+    // Map to 0-5 scale
+    const mappedIntensity = Math.floor(clamp(intensity, 0, 5));
+    SFX.setCombatIntensity(mappedIntensity);
 
     // 7. Verificar ring-outs e gerenciar sistema de vidas (Smash Bros style)
     const playerOut = checkArenaEdge(player);

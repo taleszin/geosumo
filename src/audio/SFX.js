@@ -107,6 +107,7 @@ export function init() {
     _initDrone();
     _initChargeSynth();
     _initAmbientPad();
+    _initDynamicLayers();
 }
 
 export function resume() {
@@ -339,6 +340,367 @@ function _initAmbientPad() {
 
     padOsc1.start();
     padOsc2.start();
+}
+
+// ═════════════════════════════════════════════════════════════
+// DYNAMIC MUSIC LAYERS — Adaptive Procedural Soundtrack
+// ═════════════════════════════════════════════════════════════
+
+/**
+ * Beat Clock System
+ * Runs at 120 BPM (2 beats/second, 0.5s per beat)
+ * All rhythmic elements sync to this clock.
+ */
+const BPM = 120;
+const BEAT_DURATION = 60 / BPM; // 0.5 seconds per beat
+let beatClock = 0;              // current beat (float)
+let beatPhase = 0;              // 0..1 within current beat
+let lastBeatTime = 0;           // for delta calculation
+
+// Instruments (persistent oscillators + gain controls)
+let bassOsc = null, bassGain = null, bassFilter = null;
+let kickGain = null, kickEnv = null;
+let hihatOsc = null, hihatGain = null, hihatFilter = null;
+let snareGain = null;
+let leadOsc = null, leadGain = null, leadFilter = null;
+let arpOsc = null, arpGain = null, arpFilter = null;
+
+// Layer state
+let combatIntensity = 0; // 0=idle, 1=light, 2=medium, 3=intense, 4=chaos, 5=climax
+let targetLayerGains = { bass: 0, kick: 0, hihat: 0, snare: 0, lead: 0, arp: 0 };
+let currentLayerGains = { bass: 0, kick: 0, hihat: 0, snare: 0, lead: 0, arp: 0 };
+
+// Beat triggers (set by update loop)
+let _onBeat = false;       // kick & snare triggers
+let _onEighth = false;     // hihat trigger
+let _lastBeatNum = -1;
+let _lastEighthNum = -1;
+
+function _initDynamicLayers() {
+    if (!ctx) return;
+
+    // ── BASS LINE (always running, volume varies) ────────────
+    bassOsc = ctx.createOscillator();
+    bassOsc.type = 'triangle';
+    bassOsc.frequency.value = scaleNote(N.D3); // root note
+    
+    bassFilter = ctx.createBiquadFilter();
+    bassFilter.type = 'lowpass';
+    bassFilter.frequency.value = 350;
+    bassFilter.Q.value = 3;
+    
+    bassGain = ctx.createGain();
+    bassGain.gain.value = 0;
+    
+    bassOsc.connect(bassFilter);
+    bassFilter.connect(bassGain);
+    bassGain.connect(master);
+    bassOsc.start();
+
+    // ── KICK DRUM (triggered on beat 1 & 3) ─────────────────
+    // We'll use a rapidly descending sine for kick
+    kickEnv = ctx.createGain();
+    kickEnv.gain.value = 0;
+    kickGain = ctx.createGain();
+    kickGain.gain.value = 0;
+    kickEnv.connect(kickGain);
+    kickGain.connect(master);
+
+    // ── HI-HAT (8th notes) ───────────────────────────────────
+    hihatOsc = ctx.createOscillator();
+    hihatOsc.type = 'square';
+    hihatOsc.frequency.value = 8000; // very high pitch
+    
+    hihatFilter = ctx.createBiquadFilter();
+    hihatFilter.type = 'highpass';
+    hihatFilter.frequency.value = 5000;
+    
+    hihatGain = ctx.createGain();
+    hihatGain.gain.value = 0;
+    
+    hihatOsc.connect(hihatFilter);
+    hihatFilter.connect(hihatGain);
+    hihatGain.connect(master);
+    hihatOsc.start();
+
+    // ── SNARE (beat 2 & 4) ───────────────────────────────────
+    snareGain = ctx.createGain();
+    snareGain.gain.value = 0;
+    snareGain.connect(master);
+
+    // ── LEAD MELODY (active during intense combat) ───────────
+    leadOsc = ctx.createOscillator();
+    leadOsc.type = 'sawtooth';
+    leadOsc.frequency.value = scaleNote(N.D4);
+    
+    leadFilter = ctx.createBiquadFilter();
+    leadFilter.type = 'lowpass';
+    leadFilter.frequency.value = 1200;
+    leadFilter.Q.value = 4;
+    
+    leadGain = ctx.createGain();
+    leadGain.gain.value = 0;
+    
+    leadOsc.connect(leadFilter);
+    leadFilter.connect(leadGain);
+    leadGain.connect(master);
+    leadOsc.start();
+
+    // ── ARPEGGIO (chaos mode) ────────────────────────────────
+    arpOsc = ctx.createOscillator();
+    arpOsc.type = 'square';
+    arpOsc.frequency.value = scaleNote(N.D5);
+    
+    arpFilter = ctx.createBiquadFilter();
+    arpFilter.type = 'bandpass';
+    arpFilter.frequency.value = 1800;
+    arpFilter.Q.value = 6;
+    
+    arpGain = ctx.createGain();
+    arpGain.gain.value = 0;
+    
+    arpOsc.connect(arpFilter);
+    arpFilter.connect(arpGain);
+    arpGain.connect(master);
+    arpOsc.start();
+}
+
+/**
+ * Set combat intensity (0-5) — controls which layers are active.
+ * 0 = idle       → only ambient pad
+ * 1 = light      → + bass + hihat (quiet)
+ * 2 = medium     → + kick drum
+ * 3 = intense    → + snare + lead melody
+ * 4 = chaos      → + arpeggios, everything louder
+ * 5 = climax     → FULL BLAST (special moments)
+ */
+export function setCombatIntensity(level) {
+    init();
+    if (!bassGain) return;
+    
+    combatIntensity = Math.max(0, Math.min(5, level));
+    
+    // Define target gains for each layer based on intensity
+    switch(combatIntensity) {
+        case 0: // idle
+            targetLayerGains = { bass: 0, kick: 0, hihat: 0, snare: 0, lead: 0, arp: 0 };
+            break;
+        case 1: // light combat
+            targetLayerGains = { bass: 0.08, kick: 0, hihat: 0.03, snare: 0, lead: 0, arp: 0 };
+            break;
+        case 2: // medium
+            targetLayerGains = { bass: 0.12, kick: 0.18, hihat: 0.05, snare: 0, lead: 0, arp: 0 };
+            break;
+        case 3: // intense
+            targetLayerGains = { bass: 0.15, kick: 0.22, hihat: 0.06, snare: 0.15, lead: 0.08, arp: 0 };
+            break;
+        case 4: // chaos
+            targetLayerGains = { bass: 0.18, kick: 0.25, hihat: 0.08, snare: 0.18, lead: 0.12, arp: 0.10 };
+            break;
+        case 5: // climax
+            targetLayerGains = { bass: 0.22, kick: 0.30, hihat: 0.10, snare: 0.22, lead: 0.15, arp: 0.15 };
+            break;
+    }
+}
+
+/**
+ * Get current beat phase (0..1) for timing windows.
+ * 0.0 = start of beat (perfect timing)
+ * 0.5 = middle of beat
+ * Values near 0 or 1 are "on beat"
+ */
+export function getBeatPhase() {
+    return beatPhase;
+}
+
+/**
+ * Check if we're currently "on the beat" (within timing window).
+ * Returns multiplier: 1.0 = off-beat, 1.25 = perfect
+ */
+export function getTimingMultiplier() {
+    // Window: 0.1 beats before/after the exact beat
+    const distFromBeat = Math.abs(beatPhase - Math.round(beatPhase));
+    if (distFromBeat < 0.1) {
+        // Perfect window: 0.85 to 0.95 precision
+        const precision = 1.0 - (distFromBeat / 0.1);
+        return 1.0 + precision * 0.25; // up to +25% damage
+    }
+    return 1.0;
+}
+
+/**
+ * Update the beat clock and trigger rhythmic events.
+ * Call this every frame from main game loop.
+ */
+function _updateBeatClock(dt) {
+    if (!ctx) return;
+    
+    const t = now();
+    
+    // Advance beat clock
+    beatClock += dt / BEAT_DURATION;
+    beatPhase = beatClock % 1.0;
+    
+    // Detect beat boundaries (quarter notes)
+    const beatNum = Math.floor(beatClock);
+    if (beatNum !== _lastBeatNum) {
+        _lastBeatNum = beatNum;
+        _onBeat = true;
+        _triggerBeatEvent(beatNum);
+    } else {
+        _onBeat = false;
+    }
+    
+    // Detect eighth note boundaries
+    const eighthNum = Math.floor(beatClock * 2);
+    if (eighthNum !== _lastEighthNum) {
+        _lastEighthNum = eighthNum;
+        _onEighth = true;
+        _triggerEighthEvent();
+    } else {
+        _onEighth = false;
+    }
+    
+    // Smooth layer gain transitions
+    const smoothing = 0.05; // slow fade in/out
+    for (const layer in currentLayerGains) {
+        const target = targetLayerGains[layer];
+        const current = currentLayerGains[layer];
+        currentLayerGains[layer] += (target - current) * smoothing;
+    }
+    
+    // Apply gains to actual nodes
+    if (bassGain) bassGain.gain.setValueAtTime(currentLayerGains.bass, t);
+    if (kickGain) kickGain.gain.setValueAtTime(currentLayerGains.kick, t);
+    if (hihatGain) hihatGain.gain.setValueAtTime(currentLayerGains.hihat * 0.02, t); // hihat is very quiet
+    if (snareGain) snareGain.gain.setValueAtTime(currentLayerGains.snare, t);
+    if (leadGain) leadGain.gain.setValueAtTime(currentLayerGains.lead, t);
+    if (arpGain) arpGain.gain.setValueAtTime(currentLayerGains.arp, t);
+    
+    // Update melodic elements (bass line walks, lead melody changes)
+    _updateMelodicProgression();
+}
+
+/**
+ * Trigger drum hits and accents on the beat.
+ */
+function _triggerBeatEvent(beatNum) {
+    const t = now();
+    const beatInBar = beatNum % 4; // 4/4 time signature
+    
+    // Kick drum on beats 1 and 3 (if kick layer is active)
+    if ((beatInBar === 0 || beatInBar === 2) && currentLayerGains.kick > 0.01) {
+        _playKick(t);
+    }
+    
+    // Snare on beats 2 and 4 (if snare layer is active)
+    if ((beatInBar === 1 || beatInBar === 3) && currentLayerGains.snare > 0.01) {
+        _playSnare(t);
+    }
+}
+
+function _triggerEighthEvent() {
+    // Hi-hat plays on eighth notes (if active)
+    if (currentLayerGains.hihat > 0.01) {
+        // Already handled by continuous oscillator, just modulate
+        const t = now();
+        if (hihatGain) {
+            hihatGain.gain.cancelScheduledValues(t);
+            hihatGain.gain.setValueAtTime(currentLayerGains.hihat * 0.03, t);
+            hihatGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+        }
+    }
+}
+
+/**
+ * Play kick drum (sub-bass punch).
+ */
+function _playKick(t) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(scaleNote(N.D3) * 0.5, t); // sub octave
+    osc.frequency.exponentialRampToValueAtTime(scaleNote(N.D3) * 0.25, t + 0.08);
+    
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(currentLayerGains.kick * 0.3, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    
+    osc.connect(env);
+    env.connect(kickGain);
+    osc.start(t);
+    osc.stop(t + 0.2);
+}
+
+/**
+ * Play snare (filtered noise burst + tonal component).
+ */
+function _playSnare(t) {
+    // Tonal part (high pitch)
+    const osc = ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.value = scaleNote(N.D5);
+    
+    const oscEnv = ctx.createGain();
+    oscEnv.gain.setValueAtTime(currentLayerGains.snare * 0.08, t);
+    oscEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    
+    osc.connect(oscEnv);
+    oscEnv.connect(snareGain);
+    osc.start(t);
+    osc.stop(t + 0.08);
+    
+    // Noise part
+    const bufLen = Math.ceil(ctx.sampleRate * 0.08);
+    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) {
+        data[i] = (Math.random() * 2 - 1) * (1 - i / bufLen) * 0.6;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'highpass';
+    filt.frequency.value = 2000;
+    
+    const noiseEnv = ctx.createGain();
+    noiseEnv.gain.setValueAtTime(currentLayerGains.snare * 0.12, t);
+    noiseEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    
+    src.connect(filt);
+    filt.connect(noiseEnv);
+    noiseEnv.connect(snareGain);
+    src.start(t);
+}
+
+/**
+ * Update melodic progression — bass walks, lead changes notes.
+ */
+function _updateMelodicProgression() {
+    const t = now();
+    const barNum = Math.floor(beatClock / 4); // which 4-bar phrase
+    
+    // Bass line: walks through chord tones every bar
+    if (bassOsc) {
+        const bassPattern = [N.D3, N.A3, N.D3, N.G3]; // I - V - I - IV
+        const noteIdx = bassPattern[barNum % 4];
+        bassOsc.frequency.setTargetAtTime(scaleNote(noteIdx), t, 0.1);
+    }
+    
+    // Lead melody: pentatonic runs when active
+    if (leadOsc && currentLayerGains.lead > 0.05) {
+        const leadPattern = [N.D4, N.F4, N.G4, N.A4, N.D5, N.C5, N.A4, N.G4];
+        const noteIdx = leadPattern[(Math.floor(beatClock * 2)) % 8]; // changes on eighth
+        leadOsc.frequency.setTargetAtTime(scaleNote(noteIdx), t, 0.04);
+        leadFilter.frequency.setTargetAtTime(1200 + Math.sin(beatClock) * 600, t, 0.08);
+    }
+    
+    // Arpeggio: fast cycling through triad when active
+    if (arpOsc && currentLayerGains.arp > 0.05) {
+        const arpPattern = [N.D5, N.F5, N.A5]; // D minor triad
+        const noteIdx = arpPattern[Math.floor(beatClock * 4) % 3]; // 16th notes
+        arpOsc.frequency.setTargetAtTime(scaleNote(noteIdx), t, 0.01);
+    }
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -700,6 +1062,37 @@ export function playCombo(comboCount) {
     }
 }
 
+/**
+ * Perfect timing hit — triumphant chord!
+ * Plays when player hits on-beat (within timing window).
+ */
+export function playPerfectHit() {
+    init();
+    
+    // Power chord: D + A + D (root + fifth + octave)
+    _chord([N.D5, N.A5, N.D6], {
+        type: 'triangle',
+        dur: 0.18,
+        vol: 0.12,
+        attack: 0.001,
+        decay: 0.03,
+        sustain: 0.6,
+        release: 0.10,
+    });
+    
+    // Bright accent on top
+    _tone({
+        freq: scaleNote(N.F6),
+        type: 'sine',
+        dur: 0.12,
+        vol: 0.06,
+        attack: 0.001,
+        release: 0.08,
+        sustain: 0.4,
+        delay: 0.02,
+    });
+}
+
 // ═════════════════════════════════════════════════════════════
 // CHARGE LEVEL — Rising musical tone (stays in scale)
 // ═════════════════════════════════════════════════════════════
@@ -866,11 +1259,16 @@ export function setAmbientLevel(level) {
 }
 
 // ═════════════════════════════════════════════════════════════
-// UPDATE HOOK
+// UPDATE HOOK — Beat clock & rhythmic system
 // ═════════════════════════════════════════════════════════════
 
+/**
+ * Main update function — call every frame from game loop.
+ * Advances beat clock and updates dynamic music layers.
+ */
 export function update(dt) {
-    // Available for future rhythm/pulse systems
+    init();
+    _updateBeatClock(dt);
 }
 
 // ═════════════════════════════════════════════════════════════

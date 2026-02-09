@@ -204,6 +204,11 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
         + armSpeed * ARM_SPEED_MULT;
     impactForce *= Math.sqrt(massRatio);
 
+    // TIMING MULTIPLIER — Rhythm game mechanic!
+    // Hitting on-beat gives +25% damage and force
+    const timingMult = SFX.getTimingMultiplier();
+    impactForce *= timingMult;
+
     // Power-up: multiplicador de impacto
     const attackerBuffs = getBuffMultipliers(attacker);
     impactForce *= attackerBuffs.impactMult;
@@ -262,7 +267,11 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
         attacker._justCharged = 0;
         attacker[cdKey] = HIT_COOLDOWN;
 
-        return { force: impactForce, damage: damageAdd };
+        return {
+            force: impactForce,
+            damage: damageAdd,
+            timingMult: timingMult
+        };
     }
 
     // ── APLICAR IMPULSO ──────────────────────────────────
@@ -348,7 +357,11 @@ export function checkArmHit(attacker, defender, side, sideDir, shakeCallback, ar
     // Cooldown
     attacker[cdKey] = HIT_COOLDOWN;
 
-    return { force: impactForce, damage: finalDamage }; // retorna força E dano
+    return {
+        force: impactForce,
+        damage: finalDamage,
+        timingMult: timingMult  // for visual feedback
+    };
 }
 
 // ── Body-vs-body (separação + SUMO PUSH) ─────────────────────
