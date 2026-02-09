@@ -127,6 +127,32 @@ function now() { return ctx ? ctx.currentTime : 0; }
 // ═════════════════════════════════════════════════════════════
 
 /**
+ * Play musical note from touch/click event.
+ * Synchronizes UI interactions with the musical system.
+ */
+export function playTouchNote(x, y, screenWidth, screenHeight) {
+    init();
+    // Map screen position to musical notes
+    // X-axis: panning
+    // Y-axis: pitch (higher = higher note)
+    const normalizedY = 1.0 - (y / screenHeight); // 0=bottom, 1=top
+    const noteIdx = Math.floor(normalizedY * 8) + 3; // maps to D3-C5 range
+    const pan = (x / screenWidth) * 2 - 1; // -1 to +1
+    
+    _tone({
+        freq: scaleNote(noteIdx),
+        type: 'sine',
+        dur: 0.15,
+        vol: 0.06,
+        attack: 0.002,
+        release: 0.08,
+        pan: pan,
+        vibrato: 2,
+        vibratoRate: 6
+    });
+}
+
+/**
  * Play a single musical tone with envelope.
  * This is the fundamental building block — everything is built from this.
  */
@@ -358,7 +384,7 @@ let beatPhase = 0;              // 0..1 within current beat
 let lastBeatTime = 0;           // for delta calculation
 
 // Instruments (persistent oscillators + gain controls)
-let bassOsc = null, bassGain = null, bassFilter = null;
+let bassOsc = null, bassSubOsc = null, bassGain = null, bassFilter = null;
 let kickGain = null, kickEnv = null;
 let hihatOsc = null, hihatGain = null, hihatFilter = null;
 let snareGain = null;
@@ -380,22 +406,37 @@ function _initDynamicLayers() {
     if (!ctx) return;
 
     // ── BASS LINE (always running, volume varies) ────────────
+    // Premium dual-oscillator bass with sub for depth
     bassOsc = ctx.createOscillator();
     bassOsc.type = 'triangle';
     bassOsc.frequency.value = scaleNote(N.D3); // root note
+    
+    // Sub-oscillator para profundidade (uma oitava abaixo)
+    bassSubOsc = ctx.createOscillator();
+    bassSubOsc.type = 'sine';
+    bassSubOsc.frequency.value = scaleNote(N.D3) * 0.5; // sub octave
     
     bassFilter = ctx.createBiquadFilter();
     bassFilter.type = 'lowpass';
     bassFilter.frequency.value = 350;
     bassFilter.Q.value = 3;
     
+    // Mix oscillators
+    const bassSubGain = ctx.createGain();
+    bassSubGain.gain.value = 0.4; // Sub mais quieto (30% mix)
+    
     bassGain = ctx.createGain();
     bassGain.gain.value = 0;
     
+    // Routing: both oscs → filter → master gain → out
     bassOsc.connect(bassFilter);
+    bassSubOsc.connect(bassSubGain);
+    bassSubGain.connect(bassFilter);
     bassFilter.connect(bassGain);
     bassGain.connect(master);
+    
     bassOsc.start();
+    bassSubOsc.start();
 
     // ── KICK DRUM (triggered on beat 1 & 3) ─────────────────
     // We'll use a rapidly descending sine for kick
@@ -406,22 +447,20 @@ function _initDynamicLayers() {
     kickEnv.connect(kickGain);
     kickGain.connect(master);
 
-    // ── HI-HAT (8th notes) ───────────────────────────────────
-    hihatOsc = ctx.createOscillator();
-    hihatOsc.type = 'square';
-    hihatOsc.frequency.value = 8000; // very high pitch
-    
-    hihatFilter = ctx.createBiquadFilter();
-    hihatFilter.type = 'highpass';
-    hihatFilter.frequency.value = 5000;
-    
+    // ── HI-HAT (8th notes) — Premium subtle shaker ──────────
+    // Using filtered noise for organic, non-fatiguing sound
     hihatGain = ctx.createGain();
     hihatGain.gain.value = 0;
     
-    hihatOsc.connect(hihatFilter);
+    hihatFilter = ctx.createBiquadFilter();
+    hihatFilter.type = 'bandpass';
+    hihatFilter.frequency.value = 4500; // Sweet spot: bright but not harsh
+    hihatFilter.Q.value = 8; // Narrow band for crispness
+    
     hihatFilter.connect(hihatGain);
     hihatGain.connect(master);
-    hihatOsc.start();
+    
+    // Note: We'll create noise buffers on-demand in _triggerEighthEvent()
 
     // ── SNARE (beat 2 & 4) ───────────────────────────────────
     snareGain = ctx.createGain();
@@ -467,9 +506,10 @@ function _initDynamicLayers() {
 
 /**
  * Set combat intensity (0-5) — controls which layers are active.
- * 0 = idle       → only ambient pad
+ * RHYTHM NEVER STOPS! Even at idle, we maintain baseline groove.
+ * 0 = idle       → baseline rhythm (kick+bass subtle but PRESENT)
  * 1 = light      → + bass + hihat (quiet)
- * 2 = medium     → + kick drum
+ * 2 = medium     → + kick drum stronger
  * 3 = intense    → + snare + lead melody
  * 4 = chaos      → + arpeggios, everything louder
  * 5 = climax     → FULL BLAST (special moments)
@@ -481,24 +521,25 @@ export function setCombatIntensity(level) {
     combatIntensity = Math.max(0, Math.min(5, level));
     
     // Define target gains for each layer based on intensity
+    // NOTE: Kick & bass NEVER go to zero — continuous flow!
     switch(combatIntensity) {
-        case 0: // idle
-            targetLayerGains = { bass: 0, kick: 0, hihat: 0, snare: 0, lead: 0, arp: 0 };
+        case 0: // idle — BASELINE GROOVE (continuous rhythm)
+            targetLayerGains = { bass: 0.05, kick: 0.10, hihat: 0.025, snare: 0, lead: 0, arp: 0 };
             break;
         case 1: // light combat
-            targetLayerGains = { bass: 0.08, kick: 0, hihat: 0.03, snare: 0, lead: 0, arp: 0 };
+            targetLayerGains = { bass: 0.09, kick: 0.14, hihat: 0.04, snare: 0, lead: 0, arp: 0 };
             break;
         case 2: // medium
-            targetLayerGains = { bass: 0.12, kick: 0.18, hihat: 0.05, snare: 0, lead: 0, arp: 0 };
+            targetLayerGains = { bass: 0.13, kick: 0.19, hihat: 0.055, snare: 0, lead: 0, arp: 0 };
             break;
         case 3: // intense
-            targetLayerGains = { bass: 0.15, kick: 0.22, hihat: 0.06, snare: 0.15, lead: 0.08, arp: 0 };
+            targetLayerGains = { bass: 0.16, kick: 0.23, hihat: 0.065, snare: 0.16, lead: 0.09, arp: 0 };
             break;
         case 4: // chaos
-            targetLayerGains = { bass: 0.18, kick: 0.25, hihat: 0.08, snare: 0.18, lead: 0.12, arp: 0.10 };
+            targetLayerGains = { bass: 0.19, kick: 0.27, hihat: 0.085, snare: 0.19, lead: 0.13, arp: 0.11 };
             break;
         case 5: // climax
-            targetLayerGains = { bass: 0.22, kick: 0.30, hihat: 0.10, snare: 0.22, lead: 0.15, arp: 0.15 };
+            targetLayerGains = { bass: 0.23, kick: 0.32, hihat: 0.11, snare: 0.24, lead: 0.17, arp: 0.17 };
             break;
     }
 }
@@ -561,8 +602,8 @@ function _updateBeatClock(dt) {
         _onEighth = false;
     }
     
-    // Smooth layer gain transitions
-    const smoothing = 0.05; // slow fade in/out
+    // Smooth layer gain transitions — very gradual for natural flow
+    const smoothing = 0.08; // slower = more natural transitions
     for (const layer in currentLayerGains) {
         const target = targetLayerGains[layer];
         const current = currentLayerGains[layer];
@@ -601,105 +642,180 @@ function _triggerBeatEvent(beatNum) {
 
 function _triggerEighthEvent() {
     // Hi-hat plays on eighth notes (if active)
-    if (currentLayerGains.hihat > 0.01) {
-        // Already handled by continuous oscillator, just modulate
+    if (currentLayerGains.hihat > 0.01 && hihatFilter && hihatGain) {
         const t = now();
-        if (hihatGain) {
-            hihatGain.gain.cancelScheduledValues(t);
-            hihatGain.gain.setValueAtTime(currentLayerGains.hihat * 0.03, t);
-            hihatGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+        
+        // Create noise burst (organic shaker sound)
+        const bufLen = Math.ceil(ctx.sampleRate * 0.05); // 50ms
+        const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        
+        // Shaped noise envelope for natural decay
+        for (let i = 0; i < bufLen; i++) {
+            const env = 1.0 - (i / bufLen); // Linear decay
+            data[i] = (Math.random() * 2 - 1) * env * 0.4;
         }
+        
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        
+        // Humanization: slight random variation in volume
+        const humanize = 0.85 + Math.random() * 0.3; // 85%-115%
+        const vol = currentLayerGains.hihat * 0.018 * humanize; // Muito mais suave!
+        
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(vol, t);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+        
+        // Stereo spread sutil para profundidade
+        const pan = ctx.createStereoPanner();
+        pan.pan.value = (Math.random() * 0.4 - 0.2); // -0.2 a +0.2
+        
+        src.connect(hihatFilter);
+        hihatFilter.connect(env);
+        env.connect(pan);
+        pan.connect(hihatGain);
+        
+        src.start(t);
     }
 }
 
 /**
- * Play kick drum (sub-bass punch).
+ * Play kick drum (sub-bass punch) — Premium deep thump.
  */
 function _playKick(t) {
+    // Humanização: pequena variação no timing
+    const timing = t + (Math.random() * 0.003 - 0.0015); // ±1.5ms swing
+    
     const osc = ctx.createOscillator();
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(scaleNote(N.D3) * 0.5, t); // sub octave
-    osc.frequency.exponentialRampToValueAtTime(scaleNote(N.D3) * 0.25, t + 0.08);
+    const rootFreq = scaleNote(N.D3) * 0.5;
+    osc.frequency.setValueAtTime(rootFreq, timing);
+    osc.frequency.exponentialRampToValueAtTime(rootFreq * 0.5, timing + 0.08);
+    
+    // Humanização: micro-variação no volume
+    const humanVol = 0.95 + Math.random() * 0.1; // 95%-105%
     
     const env = ctx.createGain();
-    env.gain.setValueAtTime(currentLayerGains.kick * 0.3, t);
-    env.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    env.gain.setValueAtTime(currentLayerGains.kick * 0.3 * humanVol, timing);
+    env.gain.exponentialRampToValueAtTime(0.001, timing + 0.15);
     
     osc.connect(env);
     env.connect(kickGain);
-    osc.start(t);
-    osc.stop(t + 0.2);
+    osc.start(timing);
+    osc.stop(timing + 0.2);
 }
 
 /**
- * Play snare (filtered noise burst + tonal component).
+ * Play snare (filtered noise burst + tonal component) — Premium acoustic snare.
  */
 function _playSnare(t) {
-    // Tonal part (high pitch)
+    // Humanização: micro-timing e volume variation
+    const timing = t + (Math.random() * 0.004 - 0.002); // ±2ms swing
+    const humanVol = 0.9 + Math.random() * 0.2; // 90%-110%
+    
+    // Tonal part (body resonance) — mais suave
     const osc = ctx.createOscillator();
     osc.type = 'triangle';
-    osc.frequency.value = scaleNote(N.D5);
+    osc.frequency.value = scaleNote(N.D5) * (0.98 + Math.random() * 0.04); // Slight pitch variation
     
     const oscEnv = ctx.createGain();
-    oscEnv.gain.setValueAtTime(currentLayerGains.snare * 0.08, t);
-    oscEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    oscEnv.gain.setValueAtTime(currentLayerGains.snare * 0.06 * humanVol, timing); // Reduzido
+    oscEnv.gain.exponentialRampToValueAtTime(0.001, timing + 0.05);
+    
+    // Stereo spread sutil
+    const oscPan = ctx.createStereoPanner();
+    oscPan.pan.value = Math.random() * 0.3 - 0.15; // -0.15 a +0.15
     
     osc.connect(oscEnv);
-    oscEnv.connect(snareGain);
-    osc.start(t);
-    osc.stop(t + 0.08);
+    oscEnv.connect(oscPan);
+    oscPan.connect(snareGain);
+    osc.start(timing);
+    osc.stop(timing + 0.07);
     
-    // Noise part
-    const bufLen = Math.ceil(ctx.sampleRate * 0.08);
+    // Noise part (snare wires) — mais orgânico
+    const bufLen = Math.ceil(ctx.sampleRate * 0.09);
     const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
     const data = buf.getChannelData(0);
+    
+    // Shaped envelope for natural snare decay
     for (let i = 0; i < bufLen; i++) {
-        data[i] = (Math.random() * 2 - 1) * (1 - i / bufLen) * 0.6;
+        const env = Math.pow(1 - i / bufLen, 1.5); // Exponential decay
+        data[i] = (Math.random() * 2 - 1) * env * 0.5;
     }
+    
     const src = ctx.createBufferSource();
     src.buffer = buf;
     
     const filt = ctx.createBiquadFilter();
-    filt.type = 'highpass';
-    filt.frequency.value = 2000;
+    filt.type = 'bandpass'; // Mais controlado que highpass
+    filt.frequency.value = 2800 + Math.random() * 400; // 2800-3200 Hz variation
+    filt.Q.value = 2.5;
     
     const noiseEnv = ctx.createGain();
-    noiseEnv.gain.setValueAtTime(currentLayerGains.snare * 0.12, t);
-    noiseEnv.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    noiseEnv.gain.setValueAtTime(currentLayerGains.snare * 0.09 * humanVol, timing);
+    noiseEnv.gain.exponentialRampToValueAtTime(0.001, timing + 0.09);
+    
+    // Stereo spread opposite do tonal (stereo width)
+    const noisePan = ctx.createStereoPanner();
+    noisePan.pan.value = Math.random() * 0.4 - 0.2; // -0.2 a +0.2
     
     src.connect(filt);
     filt.connect(noiseEnv);
-    noiseEnv.connect(snareGain);
-    src.start(t);
+    noiseEnv.connect(noisePan);
+    noisePan.connect(snareGain);
+    src.start(timing);
 }
 
 /**
  * Update melodic progression — bass walks, lead changes notes.
+ * Premium version with subtle stereo movement and filter modulation.
  */
 function _updateMelodicProgression() {
     const t = now();
     const barNum = Math.floor(beatClock / 4); // which 4-bar phrase
     
     // Bass line: walks through chord tones every bar
-    if (bassOsc) {
+    if (bassOsc && bassSubOsc) {
         const bassPattern = [N.D3, N.A3, N.D3, N.G3]; // I - V - I - IV
         const noteIdx = bassPattern[barNum % 4];
-        bassOsc.frequency.setTargetAtTime(scaleNote(noteIdx), t, 0.1);
+        const freq = scaleNote(noteIdx);
+        
+        // Micro pitch modulation (±2 cents) para warmth
+        const detune = Math.sin(beatClock * 0.5) * 2;
+        
+        bassOsc.frequency.setTargetAtTime(freq, t, 0.1);
+        bassOsc.detune.setTargetAtTime(detune, t, 0.2);
+        
+        // Sub-oscillator segue uma oitava abaixo
+        bassSubOsc.frequency.setTargetAtTime(freq * 0.5, t, 0.1);
+        bassSubOsc.detune.setTargetAtTime(detune * 0.5, t, 0.2); // Menos modulation no sub
     }
     
-    // Lead melody: pentatonic runs when active
+    // Lead melody: pentatonic runs when active (stereo-enhanced)
     if (leadOsc && currentLayerGains.lead > 0.05) {
         const leadPattern = [N.D4, N.F4, N.G4, N.A4, N.D5, N.C5, N.A4, N.G4];
         const noteIdx = leadPattern[(Math.floor(beatClock * 2)) % 8]; // changes on eighth
         leadOsc.frequency.setTargetAtTime(scaleNote(noteIdx), t, 0.04);
-        leadFilter.frequency.setTargetAtTime(1200 + Math.sin(beatClock) * 600, t, 0.08);
+        
+        // Filter modulation with more character (wah effect sutil)
+        const filterBase = 1200;
+        const filterMod = Math.sin(beatClock * 0.8) * 500 + Math.sin(beatClock * 1.3) * 200;
+        leadFilter.frequency.setTargetAtTime(filterBase + filterMod, t, 0.08);
+        
+        // Subtle Q modulation for movement
+        leadFilter.Q.setTargetAtTime(3 + Math.sin(beatClock * 0.3) * 1.5, t, 0.15);
     }
     
-    // Arpeggio: fast cycling through triad when active
+    // Arpeggio: fast cycling through triad when active (stereo sparkle)
     if (arpOsc && currentLayerGains.arp > 0.05) {
         const arpPattern = [N.D5, N.F5, N.A5]; // D minor triad
         const noteIdx = arpPattern[Math.floor(beatClock * 4) % 3]; // 16th notes
         arpOsc.frequency.setTargetAtTime(scaleNote(noteIdx), t, 0.01);
+        
+        // Shimmer effect: filter sweeps rapidamente
+        const arpFilterMod = 1800 + Math.sin(beatClock * 8) * 600;
+        arpFilter.frequency.setTargetAtTime(arpFilterMod, t, 0.02);
     }
 }
 

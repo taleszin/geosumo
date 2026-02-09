@@ -109,6 +109,10 @@ let lastPlayerHitTime = 0;
 const COMBO_WINDOW = 2000; // 2 segundos para manter combo
 const COMBO_BONUS = [1.0, 1.1, 1.2, 1.3]; // Multiplicadores por combo (0, 2, 3, 4+ hits)
 
+// Perfect timing feedback
+let lastPerfectHitTime = 0;
+let perfectHitMultiplier = 1.0;
+
 // ── DOM refs ──────────────────────────────────────────────────
 const $canvas       = /** @type {HTMLCanvasElement} */ (document.getElementById('glcanvas'));
 const $roundInfo    = document.getElementById('round-info');
@@ -121,6 +125,10 @@ const $stateTitle   = document.getElementById('state-title');
 const $stateSub     = document.getElementById('state-sub');
 const $stateHint    = document.getElementById('state-hint');
 const $hud          = document.getElementById('hud');
+
+// Audio recommendation screen
+const $audioRec     = document.getElementById('audio-recommendation');
+const $audioRecBtn  = document.getElementById('audio-rec-btn');
 
 // Customization DOM
 const $custScreen      = document.getElementById('customize-screen');
@@ -172,10 +180,25 @@ function boot() {
     document.addEventListener('click',     () => SFX.resume(), { once: true });
     document.addEventListener('touchstart', () => SFX.resume(), { once: true });
 
+    // Musical touch feedback — sync all interactions with beat
+    document.addEventListener('click', (e) => {
+        if (phase === 'fight' || phase === 'countdown') {
+            SFX.playTouchNote(e.clientX, e.clientY, window.innerWidth, window.innerHeight);
+        }
+    });
+    document.addEventListener('touchstart', (e) => {
+        if ((phase === 'fight' || phase === 'countdown') && e.touches.length > 0) {
+            const touch = e.touches[0];
+            SFX.playTouchNote(touch.clientX, touch.clientY, window.innerWidth, window.innerHeight);
+        }
+    });
+
     _initCustomizeUI();
     _updatePreviewEntity();
 
-    showStateScreen('GEO SUMO', 'GEOMETRIC BRAWLER — EMPURRE PARA FORA', '[ TOQUE OU CLIQUE PARA PERSONALIZAR ]', '#0ff');
+    // Show audio recommendation first (premium UX)
+    _showAudioRecommendation();
+    
     $hud.style.display = 'none';
     // Aplicar flag de dev: esconder contagem do round para testes rápidos
     if (typeof DEV !== 'undefined' && DEV.hideRound && $roundInfo) {
@@ -472,6 +495,51 @@ function _renderComboDisplay() {
     _2dCtx.restore();
 }
 
+/**
+ * Renderiza feedback visual de "PERFECT TIMING!" quando acerta no beat.
+ */
+function _renderPerfectTiming() {
+    if (!_2dCanvas || !_2dCtx || perfectHitMultiplier <= 1.0) return;
+    
+    const timeSince = performance.now() - lastPerfectHitTime;
+    const age = timeSince / 1000; // seconds
+    if (age > 0.8) return; // fade out quickly
+    
+    const alpha = age < 0.2 ? 1.0 : Math.max(0, 1.0 - (age - 0.2) / 0.6);
+    const scale = age < 0.1 ? (1.0 + (0.1 - age) * 5.0) : 1.0; // big pop
+    
+    _2dCtx.save();
+    _2dCtx.globalAlpha = alpha;
+    
+    const cx = _2dCanvas.width * 0.5;
+    const cy = _2dCanvas.height * 0.4;
+    
+    // Glowing "PERFECT!" text
+    _2dCtx.font = `bold ${Math.floor(72 * scale)}px monospace`;
+    _2dCtx.fillStyle = '#ffff00';
+    _2dCtx.strokeStyle = 'rgba(255,255,0,0.8)';
+    _2dCtx.lineWidth = 10;
+    _2dCtx.textAlign = 'center';
+    
+    // Glow effect
+    _2dCtx.shadowColor = '#ffff00';
+    _2dCtx.shadowBlur = 30 * scale;
+    
+    const text = 'PERFECT!';
+    _2dCtx.strokeText(text, cx, cy);
+    _2dCtx.fillText(text, cx, cy);
+    
+    // Multiplier indicator
+    _2dCtx.shadowBlur = 0;
+    _2dCtx.font = `bold ${Math.floor(32 * scale)}px monospace`;
+    _2dCtx.fillStyle = '#ff00ff';
+    const multText = `×${perfectHitMultiplier.toFixed(2)} DAMAGE`;
+    _2dCtx.strokeText(multText, cx, cy + 50);
+    _2dCtx.fillText(multText, cx, cy + 50);
+    
+    _2dCtx.restore();
+}
+
 // ═════════════════════════════════════════════════════════════
 // Power-Up Rendering (3D items + buff auras + HUD indicator)
 // ═════════════════════════════════════════════════════════════
@@ -681,6 +749,9 @@ function _renderDialogBubbles() {
     // Render combo display
     _renderComboDisplay();
     
+    // Render perfect timing feedback
+    _renderPerfectTiming();
+    
     // Render power-up HUD indicator
     _renderPowerUpHUD();
     
@@ -814,6 +885,7 @@ function _updateCountdown(dt) {
         phase = 'fight';
         $stateScreen.style.display = 'none';
         SFX.setAmbientLevel(0.3); // ambient pad ON during fight
+        SFX.setCombatIntensity(1); // Start with baseline rhythm (never silent!)
     }
 
     // Camera segue durante countdown
@@ -939,14 +1011,15 @@ function _updateFight(dt) {
             
             // PERFECT TIMING FEEDBACK — Rhythm game mechanic!
             if (timingMult > 1.15) {
-                // Visual feedback: PERFECT! text popup
-                _spawnPerfectText(enemy);
-                // Extra audio: play chord accent
+                // Track for visual feedback
+                lastPerfectHitTime = performance.now();
+                perfectHitMultiplier = timingMult;
+                // Extra audio: triumphant chord
                 SFX.playPerfectHit();
                 // Enhanced shake
                 camera.addShake(force * 1.5);
                 // Extra slow-mo for satisfaction
-                slowMo = Math.min(slowMo, 0.2);
+                slowMo = Math.min(slowMo, 0.15);
             }
             
             // COMBO SYSTEM
@@ -1146,7 +1219,8 @@ function _updateFight(dt) {
 
     // 6.5. Calculate combat intensity for dynamic music layers
     // Factors: recent hits, player speed, charge state, enemy proximity
-    let intensity = 0;
+    // BASELINE: Always at least intensity 1 during fight (rhythm never stops!)
+    let intensity = 1.0; // Start with baseline, never silent
     
     // Recent hits (last 2 seconds)
     const timeSinceHit = (performance.now() - lastPlayerHitTime) / 1000;
@@ -1174,8 +1248,8 @@ function _updateFight(dt) {
     });
     if (closestDist < 5) intensity += (5 - closestDist) / 5;
     
-    // Map to 0-5 scale
-    const mappedIntensity = Math.floor(clamp(intensity, 0, 5));
+    // Map to 1-5 scale (never 0 during fight!)
+    const mappedIntensity = Math.floor(clamp(intensity, 1, 5));
     SFX.setCombatIntensity(mappedIntensity);
 
     // 7. Verificar ring-outs e gerenciar sistema de vidas (Smash Bros style)
@@ -1577,6 +1651,7 @@ function startCountdown() {
     if (typeof DEV !== 'undefined' && DEV.hideRound) {
         phase = 'fight';
         SFX.setAmbientLevel(0.3); // ambient pad ON
+        SFX.setCombatIntensity(1); // Start with baseline rhythm
         $hud.style.display = 'block';
         $stateScreen.style.display = 'none';
         $roundNum.textContent = round;
@@ -1624,6 +1699,36 @@ function onStateClick(currentPhase) {
             enterCustomize();
             break;
     }
+}
+
+// ═════════════════════════════════════════════════════════════
+// Audio Recommendation Screen — Premium UX
+// ═════════════════════════════════════════════════════════════
+
+function _showAudioRecommendation() {
+    if (!$audioRec || !$audioRecBtn) return;
+    
+    $audioRec.style.display = 'flex';
+    
+    // Click handler
+    const proceed = () => {
+        // Fade out elegante
+        $audioRec.style.transition = 'opacity 0.5s ease-out';
+        $audioRec.style.opacity = '0';
+        
+        setTimeout(() => {
+            $audioRec.style.display = 'none';
+            // Show main menu
+            showStateScreen('GEO SUMO', 'GEOMETRIC BRAWLER — EMPURRE PARA FORA', '[ TOQUE OU CLIQUE PARA PERSONALIZAR ]', '#0ff');
+        }, 500);
+    };
+    
+    $audioRecBtn.addEventListener('click', proceed);
+    
+    // Também permite clicar em qualquer lugar (UX fluente)
+    $audioRec.addEventListener('click', (e) => {
+        if (e.target === $audioRec) proceed();
+    });
 }
 
 // ═════════════════════════════════════════════════════════════

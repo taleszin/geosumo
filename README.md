@@ -262,17 +262,227 @@ Cada expressão sobrescreve temporariamente a face customizada:
 - Por contexto (winning/losing baseado em vidas)
 - Esporádico (taunts aleatórios durante luta)
 
-### 🎵 Áudio Procedural
+### 🎵 Sistema de Áudio UX — Musical Procedural Engine
 
-**SFX Categories**:
-- Countdown (tick/start)
-- Impact (força variável)
-- Body Slam
-- Dash (pitch por potência)
-- Ring Out
-- Edge Warning
-- Win/Lose
-- Movement Loop (footsteps)
+**GEO SUMO** possui um sistema de áudio **100% procedural e musical**, onde cada som é sintetizado em tempo real e harmonizado com a escala pentatônica menor de D (Ré menor). O resultado é uma experiência sonora coesa, satisfatória e cinematográfica que reage dinamicamente à intensidade do combate.
+
+#### 🎼 Fundação Musical
+
+**Escala Pentatônica Menor em D**:
+```javascript
+D (Ré) - F (Fá) - G (Sol) - A (Lá) - C (Dó)
+```
+
+**5 Oitavas de Alcance**:
+- **Graves** (D3-C4): Sub-bass, kicks, tensão
+- **Médios** (D4-C5): Melodias principais, impactos
+- **Agudos** (D5-C6): Harmonias, efeitos especiais
+- **Super-Agudos** (D6-C7): Brilho, shimmer, perfect hits
+
+**Conversão MIDI → Hz**:
+```javascript
+frequency = 440 * 2^((midiNote - 69) / 12)
+// A4 (MIDI 69) = 440 Hz referência
+```
+
+#### 🎹 Primitivas de Síntese
+
+**_tone()** — Synth Completo:
+- **Osciladores**: Sine, Triangle, Square, Sawtooth
+- **Envelope ADSR**: Attack, Decay, Sustain, Release
+- **Modulação**: Vibrato LFO (taxa + intensidade)
+- **Espacialização**: Pan estéreo (-1 a +1)
+- **Filtros**: Lowpass/Bandpass com Q configurável
+- **Detune**: Chorus natural por desafinação sutil
+
+**_chord()** — Acordes Harmônicos:
+- Toca múltiplas notas simultaneamente
+- Power chords (tônica + quinta)
+- Tríades maiores/menores
+- Voicings customizáveis
+
+**_melody()** — Sequências Melódicas:
+- Padrões rítmicos programáveis
+- Espaçamento temporal entre notas
+- Transposição dinâmica
+
+**_softNoise()** — Ruído Filtrado:
+- Buffer de áudio com white noise
+- Filtrado por biquad filter
+- Envelope exponencial
+- Usado para snares, hi-hats, impactos
+
+#### 🎮 Movimento Musical — WASD Sistema
+
+Cada direção de movimento toca uma nota específica da escala:
+
+| Tecla | Nota | Função Musical |
+|-------|------|----------------|
+| **W** | D4 (Ré) | Tônica — nota raiz |
+| **S** | A3 (Lá) | Quinta abaixo — tensão descendente |
+| **A** | F4 (Fá) | Terça menor — melancolia lateral |
+| **D** | G4 (Sol) | Quarta — resolução lateral |
+| **WA/WD** | Diagonal | Notas intermediárias |
+| **SA/SD** | Diagonal | Variações graves |
+
+**Features do Sistema**:
+- ✅ Volume dinâmico baseado em velocidade (0.03-0.07)
+- ✅ Cooldown inteligente (120ms geral, 200ms mesma direção)
+- ✅ Synth curto (50-80ms) para não poluir
+- ✅ Pan estéreo sutil para percepção espacial
+
+#### 🥁 Dynamic Music Layers — Adaptive Soundtrack
+
+O jogo possui uma **trilha sonora adaptativa** que nunca para, com camadas que entram/saem baseadas na intensidade do combate:
+
+**6 Camadas Instrumentais**:
+
+| Camada | Tipo | Função | Intensidade |
+|--------|------|--------|-------------|
+| **Bass** 🎸 | Triangle wave + lowpass | Linha de baixo (D→A→D→G) | Sempre presente |
+| **Kick** 🥁 | Sine pitch-bend | Bombo (beats 1 e 3) | Sempre presente |
+| **Hi-Hat** 🎵 | Square + highpass | Percussão (8ths) | Light+ |
+| **Snare** 🥁 | Noise + triangle | Caixa (beats 2 e 4) | Intense+ |
+| **Lead** 🎹 | Sawtooth + lowpass | Melodia pentatônica | Intense+ |
+| **Arpeggio** ⚡ | Square + bandpass | Tríade rápida (16ths) | Chaos+ |
+
+**5 Níveis de Intensidade**:
+
+```javascript
+0: IDLE      → Baseline rhythm (kick + bass sutis)
+1: LIGHT     → + Hi-hat suave
+2: MEDIUM    → + Kick mais forte
+3: INTENSE   → + Snare + Lead melody
+4: CHAOS     → + Arpeggiator (tudo maximizado)
+5: CLIMAX    → FULL BLAST (momentos épicos)
+```
+
+**Cálculo de Intensidade em Tempo Real**:
+```javascript
+intensity = 1.0 (baseline)
+  + recentHits * 2.0
+  + playerSpeed * 1.5
+  + chargeState (0.5-1.0)
+  + comboCount * 0.5
+  + enemyProximity (0-1.0)
+
+// Mapeado para 1-5 (nunca 0 durante luta = ritmo contínuo!)
+```
+
+**Beat Clock System**:
+- **BPM**: 120 (2 beats/segundo)
+- **Time Signature**: 4/4
+- **Grid**: Quarter notes (kick/snare), eighth notes (hi-hat), sixteenths (arp)
+- **Sincronização**: Todos os eventos rítmicos alinhados ao beat clock
+
+#### 🎯 Perfect Timing System — Rhythm Mechanic
+
+O combate sincroniza com a música! Atacar **on-beat** gera recompensas:
+
+**Timing Window**:
+```javascript
+beatPhase = 0.85 - 1.0  // 15% do beat (0.075s a 120 BPM)
+```
+
+**Bonificações**:
+- ✅ **+25% de dano e knockback** (multiplicador 1.25x)
+- ✅ **Slow-motion extra** (0.2x speed)
+- ✅ **Screen shake intensificado** (1.5x)
+- ✅ **SFX especial**: Power chord (D5 + A5 + D6 + shimmer F6)
+- ✅ **Texto "PERFECT!"** amarelo brilhante com glow
+- ✅ **Floating damage number** diferenciado
+
+**Visual Feedback**:
+- Texto "PERFECT!" (72px bold, fade 0.8s)
+- Multiplicador de dano exibido (×1.25)
+- Glow effect amarelo com shadowBlur
+- Pop-in animation (scale 1.0 → 6.0 → 1.0)
+
+#### 🔊 Efeitos Sonoros Musicalizados
+
+**Todos os SFX são harmonizados com a escala**:
+
+| Evento | Implementação Musical |
+|--------|-----------------------|
+| **Impact** | Nota da escala indexada por força (D4-C6 range) |
+| **Combo** | Melodia ascendente (D4→F4→G4→A4→C5→D5) + shimmer |
+| **Dash** | Glissando de 3-5 notas ascendentes |
+| **Body Slam** | Sub-bass D3 + quinta A3 (power chord grave) |
+| **Ring Out** | Descida cromática rápida (whoosh) |
+| **Edge Warning** | Oscilação D5↔F5 com vibrato pesado |
+| **Perfect Hit** | Acorde triunfante (D5+A5+D6 + accent F6) |
+| **Menu Click** | Notas altas aleatórias da escala (UI feedback) |
+
+**Power-Up SFX** (cada um com assinatura única):
+- **VELOCIDADE**: Arpeggio ascendente rápido (D4→F4→A4→D5)
+- **TANQUE**: Acorde grave pesado (D2 + A2 + D3)
+- **IMPACTO**: Slam grave (D3) + ressonância A3
+
+#### 🎛️ Synths Persistentes
+
+**3 Sintetizadores Always-On** para continuidade:
+
+**1. Drone de Movimento** 🌊:
+```javascript
+Notas: D3 + A3 (power chord, quinta perfeita)
+Tipos: Triangle + Sine (warmth)
+Filtro: Lowpass 400Hz, Q=2
+Volume: 0.0-0.08 (baseado em velocidade)
+```
+
+**2. Charge Synth** ⚡:
+```javascript
+Nota: D3 → D5 (2 oitavas)
+Tipo: Sine + Triangle (detune 7)
+Filtro: Lowpass 600Hz, Q=4
+Pitch: Sobe exponencialmente com charge amount
+```
+
+**3. Ambient Pad** 🌌:
+```javascript
+Notas: D3 + A3 (detune 3)
+Tipos: Sine dual com chorus natural
+Filtro: Lowpass 300Hz (muito abafado)
+Volume: 0.0-0.03 (liga em fight, desliga em menus)
+Função: "Background atmosphere" sutil
+```
+
+#### 🎹 Touch/Click Musical Interativo
+
+**Cada toque na tela é musical**:
+- **Eixo X**: Pan estéreo (-1 esquerda, +1 direita)
+- **Eixo Y**: Pitch (bottom=D3, top=C5, 8 notas)
+- **Synth**: Sine wave com vibrato suave
+- **Duração**: 150ms (curto, responsivo)
+- **Volume**: 0.06 (não intrusivo)
+
+Isso transforma a UI em um **instrumento musical interativo**!
+
+#### 🎚️ Master Bus Processing
+
+**DynamicsCompressor** para áudio profissional:
+```javascript
+threshold: -18 dB
+ratio: 4:1
+attack: 3ms
+release: 150ms
+knee: 12 dB
+```
+
+**Ganho Master**: 0.7 (headroom para mix limpo)
+
+#### 📊 Benefícios do Sistema
+
+✅ **Coerência Musical**: Todos os sons harmônicos, nenhum conflito
+✅ **Dopamina Auditiva**: Perfect timing + combos = satisfação máxima
+✅ **Flow State**: Ritmo contínuo mantém o jogador "na zona"
+✅ **Feedback Instantâneo**: Cada ação tem resposta sonora imediata
+✅ **Progressão Natural**: Intensidade cresce organicamente com o combate
+✅ **Zero Assets**: 100% procedural, sem arquivos de áudio
+✅ **Performance**: Síntese eficiente, baixo uso de CPU
+✅ **Acessibilidade**: Sistema pode ser desativado (volume master)
+
+---
 
 **Dialog Audio**:
 - Blip sintetizado por caractere
