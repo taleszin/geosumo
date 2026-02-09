@@ -122,6 +122,9 @@ const $custDifficultyDisp = document.getElementById('cust-difficulty-display');
 const $custDesc        = document.getElementById('cust-desc');
 const $custFightBtn    = document.getElementById('cust-fight-btn');
 const $custRandomBtn   = document.getElementById('cust-random-btn');
+const $custDifficultyPanel = document.getElementById('cust-difficulty-panel');
+const $custDifficultyHide = document.getElementById('cust-difficulty-hide');
+const $custDifficultyToggle = document.getElementById('cust-difficulty-toggle');
 
 // HP bar containers (will be generated dynamically)
 const $hpBars = document.getElementById('hp-bars');
@@ -960,6 +963,24 @@ function _initCustomizeUI() {
             _updateCustomizeDisplay();
         }
     });
+
+    // Difficulty hide/show handlers
+    if ($custDifficultyHide) {
+        $custDifficultyHide.addEventListener('click', (e) => {
+            e.stopPropagation();
+            SFX.playNavigate();
+            $custDifficultyPanel.style.display = 'none';
+            if ($custDifficultyToggle) $custDifficultyToggle.style.display = 'flex';
+        });
+    }
+    if ($custDifficultyToggle) {
+        $custDifficultyToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            SFX.playNavigate();
+            $custDifficultyPanel.style.display = '';
+            $custDifficultyToggle.style.display = 'none';
+        });
+    }
 }
 
 function enterCustomize() {
