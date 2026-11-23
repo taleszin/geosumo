@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>GEO SUMO — Geometric Brawler</title>
+  <script type="module" crossorigin src="./assets/index-CM1ogOpT.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-CUJMMjdo.css">
+</head>
+<body>
+    <canvas id="glcanvas"></canvas>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- HUD OVERLAY (durante luta)                             -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="hud">
+        <div id="panel-top">
+            <div id="game-title">GEO SUMO</div>
+            <div id="round-info">ROUND <span id="round-num">1</span> — GEOMETRIC BRAWLER</div>
+        </div>
+
+        <div id="hp-bars">
+            <div id="hp-player-container" class="hp-container">
+                <span class="hp-label">PLAYER</span>
+                <div id="hp-player" class="hp-fill"></div>
+            </div>
+            <span id="vs-text">VS</span>
+            <div id="hp-enemy-container" class="hp-container">
+                <span class="hp-label">ENEMY</span>
+                <div id="hp-enemy" class="hp-fill"></div>
+            </div>
+        </div>
+
+        <!-- PAINEL DE KILLS -->
+        <div id="kill-panel">
+            <div id="kill-ranking"></div>
+            <div id="kill-feed"></div>
+        </div>
+
+        <div id="panel-left">
+            <div>WASD — MOVER</div>
+            <div>MOUSE — MIRAR BRAÇOS</div>
+            <div>LMB — BRAÇO ESQUERDO</div>
+            <div>RMB — BRAÇO DIREITO</div>
+            <div>SHIFT/ESPAÇO — INVESTIDA</div>
+        </div>
+        <div id="panel-right">
+            <div id="dbg-pos">POS: 0, 0</div>
+            <div id="dbg-vel">VEL: 0</div>
+            <div id="dbg-fps">FPS: 60</div>
+        </div>
+        <div id="panel-bottom">WebGL 1.0 — GLSL — ZERO TEXTURES — PROCEDURAL ONLY</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- RECOMENDAÇÃO DE ÁUDIO (aparece antes do jogo começar)  -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="audio-recommendation" style="display:none;">
+        <div id="audio-rec-content">
+            <div id="audio-rec-icon">🎧</div>
+            <div id="audio-rec-title">EXPERIÊNCIA PREMIUM</div>
+            <div id="audio-rec-subtitle">Recomendado com fones de ouvido</div>
+            <div id="audio-rec-desc">Para aproveitar melhor a experiência sonora :3</div>
+            <button id="audio-rec-btn">COMEÇAR</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- TELA DE ESTADO (menu / win / lose)                     -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="state-screen">
+        <div id="state-title">GEO SUMO</div>
+        <div id="state-sub">EMPURRE O INIMIGO PARA FORA DA ARENA</div>
+        <div id="state-hint">[ CLIQUE PARA PERSONALIZAR ]</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- TELA DE CUSTOMIZAÇÃO                                    -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="customize-screen" style="display:none;">
+        <div id="cust-header">
+            <div id="cust-title">CRIE SEU LUTADOR</div>
+            <div id="cust-subtitle">PERSONALIZE FORMA, COR, OLHOS E BOCA</div>
+        </div>
+
+        <!-- Toggle para reconstruir painel de dificuldade (aparece quando ocultado) -->
+        <button id="cust-difficulty-toggle" style="display:none;" title="Mostrar dificuldade">⚡</button>
+
+        <!-- Dica sutil de showcase -->
+        <div id="cust-showcase-hint">◁ SEU LUTADOR EM DESTAQUE ▷</div>
+
+        <!-- GRID DE CUSTOMIZAÇÃO (estilo AAA games) -->
+        <div id="cust-grid">
+            <!-- COLUNA ESQUERDA -->
+            <div class="cust-column cust-left">
+                <!-- FORMA -->
+                <div class="cust-card" data-category="appearance">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">■</div>
+                        <span class="cust-card-title">FORMA</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="shape" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-shape-display">Cubo</div>
+                        <button class="cust-arrow" data-cat="shape" data-dir="1">►</button>
+                    </div>
+                </div>
+
+                <!-- OLHOS -->
+                <div class="cust-card" data-category="appearance">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">◉</div>
+                        <span class="cust-card-title">OLHOS</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="eyes" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-eyes-display">Redondos</div>
+                        <button class="cust-arrow" data-cat="eyes" data-dir="1">►</button>
+                    </div>
+                </div>
+
+                <!-- INIMIGOS -->
+                <div class="cust-card" data-category="combat">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">⚔</div>
+                        <span class="cust-card-title">INIMIGOS</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="enemies" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-enemy-display">1</div>
+                        <button class="cust-arrow" data-cat="enemies" data-dir="1">►</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- COLUNA DIREITA -->
+            <div class="cust-column cust-right">
+                <!-- COR -->
+                <div class="cust-card" data-category="appearance">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">●</div>
+                        <span class="cust-card-title">COR</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="color" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-color-display">Ciano</div>
+                        <button class="cust-arrow" data-cat="color" data-dir="1">►</button>
+                    </div>
+                </div>
+
+                <!-- BOCA -->
+                <div class="cust-card" data-category="appearance">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">‿</div>
+                        <span class="cust-card-title">BOCA</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="mouth" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-mouth-display">Simples</div>
+                        <button class="cust-arrow" data-cat="mouth" data-dir="1">►</button>
+                    </div>
+                </div>
+
+                <!-- VIDAS -->
+                <div class="cust-card" data-category="combat">
+                    <div class="cust-card-header">
+                        <div class="cust-icon">♥</div>
+                        <span class="cust-card-title">VIDAS</span>
+                    </div>
+                    <div class="cust-selector">
+                        <button class="cust-arrow" data-cat="lives" data-dir="-1">◄</button>
+                        <div class="cust-value" id="cust-lives-display">3</div>
+                        <button class="cust-arrow" data-cat="lives" data-dir="1">►</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DIFICULDADE (centralizada na parte inferior) -->
+        <div id="cust-difficulty-panel">
+            <div class="cust-card cust-card-wide" data-category="combat">
+                <div class="cust-card-header">
+                    <div class="cust-icon">⚡</div>
+                    <span class="cust-card-title">DIFICULDADE</span>
+                    <!-- Botão vermelho para ocultar temporariamente -->
+                    <button id="cust-difficulty-hide" class="cust-hide-btn" title="Ocultar">−</button>
+                </div>
+                <div class="cust-selector">
+                    <button class="cust-arrow" data-cat="difficulty" data-dir="-1">◄</button>
+                    <div class="cust-value" id="cust-difficulty-display">Médio</div>
+                    <button class="cust-arrow" data-cat="difficulty" data-dir="1">►</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- DESCRIÇÃO (tooltip flutuante) -->
+        <div id="cust-desc"></div>
+
+        <!-- BOTÕES DE AÇÃO -->
+        <div id="cust-actions">
+            <button id="cust-random-btn" title="Aleatorizar">🎲</button>
+            <button id="cust-fight-btn">⚔ LUTAR!</button>
+        </div>
+    </div>
+
+</body>
+</html>
